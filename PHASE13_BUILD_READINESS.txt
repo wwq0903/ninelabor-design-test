@@ -1,0 +1,10 @@
+PASS Node >= 20
+PASS package.json has build script
+PASS TypeScript configuration exists
+PASS Vite entrypoint exists
+PASS Dependency lockfile exists
+BLOCKED Installed Vite package exists
+BLOCKED Installed TypeScript package exists
+
+5/7 prerequisites available
+Build is NOT verified. Install dependencies in a network-enabled environment and run npm run lint && npm run build.

@@ -1,0 +1,639 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based access control and tenant assignment",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["ADMIN", "COMPANY", "WORKER"] },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "requestedCompanyId": { "type": "string", "maxLength": 128 },
+        "requestedCompanyName": { "type": "string", "maxLength": 100 },
+        "membershipType": { "type": "string", "enum": ["COMPANY_AFFILIATED", "INDIVIDUAL"] },
+        "membershipStatus": { "type": "string", "enum": ["ACTIVE", "PENDING_COMPANY_VERIFICATION", "REJECTED"] },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "assignedCompanyIds": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Designated super administrators with global read/write access",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email"]
+    },
+    "Company": {
+      "title": "Company",
+      "description": "Client company entity isolated by companyId",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyName": { "type": "string", "maxLength": 100 },
+        "businessNumber": { "type": "string", "maxLength": 20 },
+        "representativeName": { "type": "string", "maxLength": 50 },
+        "contactEmail": { "type": "string", "format": "email" },
+        "contactPhone": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 200 },
+        "assignedAttorneyId": { "type": "string", "maxLength": 128 },
+        "activeSubscriptionRequestId": { "type": "string", "maxLength": 128 },
+        "currentPlanId": { "type": "string", "maxLength": 50 },
+        "subscription": {
+          "type": "object",
+          "properties": {
+            "planCode": { "type": "string", "enum": ["FREE", "BASIC", "STANDARD", "CUSTOM", "OUTSOURCING"] },
+            "status": { "type": "string", "enum": ["PENDING", "ACTIVE", "EXPIRED", "CANCELLED"] },
+            "startDate": { "type": "string" },
+            "endDate": { "type": "string" }
+          }
+        },
+        "status": { "type": "string", "enum": ["active", "pending", "suspended"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyName", "businessNumber", "status"]
+    },
+    "CompanyDirectory": {
+      "title": "CompanyDirectory",
+      "description": "Minimal non-sensitive company directory used strictly for public search during onboarding",
+      "type": "object",
+      "properties": {
+        "companyId": { "type": "string" },
+        "companyName": { "type": "string", "maxLength": 100 },
+        "businessNumberMasked": { "type": "string", "maxLength": 20 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "companyName"]
+    },
+    "Worker": {
+      "title": "Worker",
+      "description": "Worker record belonging strictly to a company",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string", "maxLength": 30 },
+        "department": { "type": "string", "maxLength": 50 },
+        "position": { "type": "string", "maxLength": 50 },
+        "joinDate": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["active", "resigned", "on_leave"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "name", "status"]
+    },
+    "MaternityCase": {
+      "title": "MaternityCase",
+      "description": "Maternity protection case linked by companyId and employeeId",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "workType": { "type": "string", "maxLength": 50 },
+        "applicationDate": { "type": "string", "maxLength": 20 },
+        "startDate": { "type": "string", "maxLength": 20 },
+        "endDate": { "type": "string", "maxLength": 20 },
+        "returnDate": { "type": "string", "maxLength": 20 },
+        "assignedAttorneyId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "completedById": { "type": "string", "maxLength": 128 },
+        "internalNotes": { "type": "string", "maxLength": 5000 },
+        "createdById": { "type": "string", "maxLength": 128 },
+        "updatedById": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "employeeId", "workType", "startDate", "endDate", "status"]
+    },
+    "MaternityCasePrivate": {
+      "title": "MaternityCasePrivate",
+      "description": "Isolated administrative notes and confidential attorney annotations strictly accessible by ADMIN",
+      "type": "object",
+      "properties": {
+        "caseId": { "type": "string", "maxLength": 128 },
+        "internalNotes": { "type": "string", "maxLength": 10000 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedById": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["caseId", "internalNotes", "updatedAt", "updatedById"]
+    },
+    "MaternityDocument": {
+      "title": "MaternityDocument",
+      "description": "Official documents and attachments submitted for maternity cases",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "caseId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "documentType": { "type": "string", "maxLength": 100 },
+        "title": { "type": "string", "maxLength": 200 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "fileUrl": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "SUBMITTED", "APPROVED", "REJECTED"] },
+        "uploadedById": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["caseId", "companyId", "employeeId", "title", "fileName"]
+    },
+    "MaternityDocumentPrivate": {
+      "title": "MaternityDocumentPrivate",
+      "description": "Sensitive administrative review and legal audit notes for maternity documents strictly accessible by ADMIN",
+      "type": "object",
+      "properties": {
+        "documentId": { "type": "string", "maxLength": 128 },
+        "internalNotes": { "type": "string", "maxLength": 10000 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedById": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["documentId", "internalNotes", "updatedAt", "updatedById"]
+    },
+    "Inquiry": {
+      "title": "Inquiry",
+      "description": "Integrated labor inquiry managed across roles (COMPANY, individual WORKER, and ADMIN)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": ["string", "null"], "maxLength": 128 },
+        "companyName": { "type": ["string", "null"], "maxLength": 200 },
+        "requesterId": { "type": "string", "maxLength": 128 },
+        "requesterName": { "type": "string", "maxLength": 100 },
+        "requesterRole": { "type": "string", "enum": ["COMPANY", "WORKER"] },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "authorName": { "type": "string", "maxLength": 100 },
+        "authorRole": { "type": "string", "enum": ["COMPANY", "WORKER"] },
+        "type": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 5000 },
+        "status": { "type": "string", "enum": ["RECEIVED", "IN_PROGRESS", "ANSWERED", "CLOSED", "ASSIGNED"] },
+        "answer": { "type": "string", "maxLength": 10000 },
+        "answeredAt": { "type": "string", "format": "date-time" },
+        "answeredById": { "type": "string", "maxLength": 128 },
+        "answeredByName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["requesterId", "requesterRole", "requesterName", "title", "content", "status"]
+    },
+    "InquiryFile": {
+      "title": "InquiryFile",
+      "description": "Attachment metadata for labor inquiries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "inquiryId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": ["string", "null"], "maxLength": 128 },
+        "requesterId": { "type": "string", "maxLength": 128 },
+        "uploadedById": { "type": "string", "maxLength": 128 },
+        "uploadedByRole": { "type": "string", "enum": ["ADMIN", "COMPANY", "WORKER"] },
+        "originalFileName": { "type": "string", "maxLength": 255 },
+        "storagePath": { "type": "string", "maxLength": 500 },
+        "contentType": { "type": "string", "maxLength": 100 },
+        "size": { "type": "number" },
+        "uploadedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "inquiryId", "requesterId", "uploadedById", "uploadedByRole", "originalFileName", "storagePath", "contentType", "size", "uploadedAt"]
+    },
+    "InquiryHistory": {
+      "title": "InquiryHistory",
+      "description": "Immutable processing audit trail for integrated labor inquiries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "inquiryId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": ["string", "null"], "maxLength": 128 },
+        "requesterId": { "type": "string", "maxLength": 128 },
+        "eventType": {
+          "type": "string",
+          "enum": [
+            "INQUIRY_CREATED",
+            "INQUIRY_EDITED",
+            "STATUS_CHANGED",
+            "ANSWER_CREATED",
+            "ANSWER_UPDATED",
+            "INQUIRY_CLOSED"
+          ]
+        },
+        "actorId": { "type": "string", "maxLength": 128 },
+        "actorRole": { "type": "string", "enum": ["ADMIN", "COMPANY", "WORKER"] },
+        "actorName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "fromStatus": { "type": "string" },
+            "toStatus": { "type": "string" }
+          }
+        }
+      },
+      "required": ["id", "inquiryId", "requesterId", "eventType", "actorId", "actorRole", "actorName", "createdAt"]
+    },
+    "UserConsent": {
+      "title": "UserConsent",
+      "description": "Tracked terms agreement history with versioning and timestamping",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "termType": { "type": "string", "maxLength": 50 },
+        "version": { "type": "string", "maxLength": 20 },
+        "agreed": { "type": "boolean" },
+        "agreedAt": { "type": "string", "format": "date-time" },
+        "withdrawnAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "termType", "version", "agreed", "agreedAt"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Direct communication messages strictly isolated between ADMIN and individual COMPANY clients",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "companyName": { "type": "string", "maxLength": 100 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderRole": { "type": "string", "enum": ["ADMIN", "COMPANY"] },
+        "senderName": { "type": "string", "maxLength": 100 },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 5000 },
+        "recipientId": { "type": "string", "maxLength": 128 },
+        "recipientRole": { "type": "string", "enum": ["ADMIN", "COMPANY"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "companyId", "senderId", "senderRole", "senderName", "content", "createdAt", "updatedAt"]
+    },
+    "MessageTemplate": {
+      "title": "MessageTemplate",
+      "description": "Standard business message templates managed by Admin with active state control",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "content": { "type": "string", "maxLength": 5000 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdById": { "type": "string", "maxLength": 128 },
+        "updatedById": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "name", "content", "isActive", "createdAt", "updatedAt", "createdById", "updatedById"]
+    },
+    "MessageRead": {
+      "title": "MessageRead",
+      "description": "Read status logs for inter-role messages to calculate unread counts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messageId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "readAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "messageId", "companyId", "userId", "readAt"]
+    },
+    "MessageFile": {
+      "title": "MessageFile",
+      "description": "File attachments linked to inter-role messages",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "messageId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "uploadedById": { "type": "string", "maxLength": 128 },
+        "uploadedByRole": { "type": "string", "enum": ["ADMIN", "COMPANY"] },
+        "originalFileName": { "type": "string", "maxLength": 255 },
+        "storagePath": { "type": "string", "maxLength": 500 },
+        "contentType": { "type": "string", "maxLength": 100 },
+        "size": { "type": "number" },
+        "uploadedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "messageId", "companyId", "uploadedById", "uploadedByRole", "originalFileName", "storagePath", "contentType", "size", "uploadedAt"]
+    },
+    "DataRequest": {
+      "title": "DataRequest",
+      "description": "Official requests for documents from Attorney to Company with lifecycle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "requestedItems": { "type": "array", "items": { "type": "string" } },
+        "dueDate": { "type": "string", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["REQUESTED", "SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED", "COMPLETED"] },
+        "submissionNote": { "type": "string", "maxLength": 5000 },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "submittedById": { "type": "string", "maxLength": 128 },
+        "submittedFiles": { "type": "array", "items": { "$ref": "#/entities/DataRequestFile" } },
+        "revisionNote": { "type": "string", "maxLength": 5000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdById": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedById": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["companyId", "title", "description", "requestedItems", "dueDate", "status", "createdById", "updatedById"]
+    },
+    "DocumentMeta": {
+      "title": "DocumentMeta",
+      "description": "Metadata for business documents isolated strictly by companyId",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 200 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "uploadedById": { "type": "string", "maxLength": 128 },
+        "uploadedByName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "category", "title", "fileName"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "Internal service notification records",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 200 },
+        "content": { "type": "string", "maxLength": 1000 },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "content", "isRead"]
+    },
+    "Payroll": {
+      "title": "Payroll",
+      "description": "Company employee monthly payroll record isolated by companyId",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "employeeName": { "type": "string", "maxLength": 50 },
+        "belongingYearMonth": { "type": "string", "maxLength": 7 },
+        "totalPay": { "type": "number" },
+        "totalDeduction": { "type": "number" },
+        "netPay": { "type": "number" },
+        "status": { "type": "string", "enum": ["DRAFT", "CONFIRMED", "PAID"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "employeeId", "belongingYearMonth", "status"]
+    },
+    "OvertimeRecord": {
+      "title": "OvertimeRecord",
+      "description": "Employee overtime and holiday work log isolated by companyId",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "employeeId": { "type": "string", "maxLength": 128 },
+        "workDate": { "type": "string", "maxLength": 10 },
+        "belongingYearMonth": { "type": "string", "maxLength": 7 },
+        "workType": { "type": "string", "enum": ["OVERTIME", "HOLIDAY"] },
+        "hours": { "type": "number" },
+        "authorId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "employeeId", "workDate", "belongingYearMonth", "workType", "hours"]
+    },
+    "OvertimeSyncMeta": {
+      "title": "OvertimeSyncMeta",
+      "description": "Metadata tracking overtime source modification vs payroll import timestamps",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "belongingYearMonth": { "type": "string", "maxLength": 7 },
+        "overtimeSourceUpdatedAt": { "type": "string", "format": "date-time" },
+        "overtimeImportedAt": { "type": "string", "format": "date-time" },
+        "lastAction": { "type": "string", "maxLength": 64 },
+        "updatedById": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "belongingYearMonth", "overtimeSourceUpdatedAt"]
+    },
+    "AIConsultation": {
+      "title": "AIConsultation",
+      "description": "AI labor consultation and attorney review pipeline",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "conversationId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "question": { "type": "string", "maxLength": 5000 },
+        "aiAnswer": { "type": "string", "maxLength": 10000 },
+        "status": { "type": "string", "enum": ["AI_ANSWERED", "ATTORNEY_REVIEW_PENDING", "ATTORNEY_REVIEWING", "ANSWERED"] },
+        "attorneyAnswer": { "type": "string", "maxLength": 10000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["conversationId", "userId", "question", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Security and administrative audit trail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "actorUserId": { "type": "string", "maxLength": 128 },
+        "actorRole": { "type": "string", "maxLength": 30 },
+        "actorName": { "type": "string", "maxLength": 100 },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "action": { "type": "string", "maxLength": 100 },
+        "resourceType": { "type": "string", "maxLength": 50 },
+        "resourceId": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUserId", "actorRole", "action", "resourceType", "resourceId", "timestamp"]
+    },
+    "FirmInfo": {
+      "title": "FirmInfo",
+      "description": "Labor firm public contact and institutional configuration placeholders",
+      "type": "object",
+      "properties": {
+        "firmName": { "type": "string", "maxLength": 100 },
+        "representative": { "type": "string", "maxLength": 50 },
+        "businessNumber": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "email": { "type": "string", "format": "email" },
+        "description": { "type": "string", "maxLength": 1000 },
+        "naverReservationUrl": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["firmName"]
+    },
+    "MaternityDeduction": {
+      "title": "MaternityDeduction",
+      "description": "Ledger recording individual maternity quota deductions per case",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "deductionId": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "maternityCaseId": { "type": "string", "maxLength": 128 },
+        "source": { "type": "string", "enum": ["MONTHLY_FREE", "PREPAID_TICKET"] },
+        "quantity": { "type": "number" },
+        "status": { "type": "string", "enum": ["DEDUCTED", "RESTORED", "CANCELLED"] },
+        "yearMonth": { "type": "string", "maxLength": 7 },
+        "deductedAt": { "type": "string", "format": "date-time" },
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorRole": { "type": "string", "maxLength": 30 },
+        "actorName": { "type": "string", "maxLength": 100 },
+        "idempotencyKey": { "type": "string", "maxLength": 256 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "maternityCaseId", "source", "quantity", "status", "yearMonth", "actorUid", "actorRole"]
+    },
+    "SubscriptionRequest": {
+      "title": "SubscriptionRequest",
+      "description": "Company membership subscription change request managed by administrators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "companyName": { "type": "string", "maxLength": 100 },
+        "requesterId": { "type": "string", "maxLength": 128 },
+        "requestedPlanCode": { "type": "string", "enum": ["FREE", "BASIC", "STANDARD", "CUSTOM", "OUTSOURCING"] },
+        "status": { "type": "string", "enum": ["REQUESTED", "UNDER_REVIEW", "APPROVED", "REJECTED", "CANCELLED"] },
+        "note": { "type": "string", "maxLength": 1000 },
+        "reviewerId": { "type": "string", "maxLength": 128 },
+        "reviewerName": { "type": "string", "maxLength": 100 },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "reviewComment": { "type": "string", "maxLength": 1000 },
+        "appliedAt": { "type": "string", "format": "date-time" },
+        "appliedById": { "type": "string", "maxLength": 128 },
+        "appliedByName": { "type": "string", "maxLength": 100 },
+        "appliedSubscriptionPlanCode": { "type": "string", "enum": ["FREE", "BASIC", "STANDARD", "CUSTOM", "OUTSOURCING"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["companyId", "companyName", "requesterId", "requestedPlanCode", "status", "createdAt", "updatedAt"]
+    },
+    "CompanyContact": {
+      "title": "CompanyContact",
+      "description": "Internal business contact for a client company managed strictly by administrators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 100 },
+        "position": { "type": "string", "maxLength": 100 },
+        "department": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "format": "email" },
+        "responsibilities": { "type": "array", "items": { "type": "string" } },
+        "isPrimary": { "type": "boolean" },
+        "internalNote": { "type": "string", "maxLength": 2000 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdById": { "type": "string", "maxLength": 128 },
+        "updatedById": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["companyId", "name", "isPrimary", "isActive", "createdAt", "updatedAt", "createdById", "updatedById"]
+    },
+    "InternalNote": {
+      "title": "InternalNote",
+      "description": "Internal business notes for companies and workers strictly managed by administrators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "targetType": { "type": "string", "enum": ["COMPANY", "WORKER"] },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "content": { "type": "string", "maxLength": 3000 },
+        "category": { "type": "string", "maxLength": 50 },
+        "isPinned": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdById": { "type": "string", "maxLength": 128 },
+        "createdByName": { "type": "string", "maxLength": 100 },
+        "updatedById": { "type": "string", "maxLength": 128 },
+        "updatedByName": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["targetType", "targetId", "companyId", "content", "isPinned", "isActive", "createdAt", "updatedAt", "createdById", "createdByName", "updatedById", "updatedByName"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Administrator tasks and deadlines integrated across labor practice",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "companyId": { "type": "string", "maxLength": 128 },
+        "workerId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "priority": { "type": "string", "enum": ["LOW", "NORMAL", "HIGH", "URGENT"] },
+        "status": { "type": "string", "enum": ["TODO", "IN_PROGRESS", "COMPLETED", "CANCELLED"] },
+        "dueDate": { "type": "string" },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "sourceType": { "type": "string", "enum": ["MANUAL", "INQUIRY", "DATA_REQUEST", "MATERNITY", "PAYROLL", "MESSAGE", "DOCUMENT", "OTHER"] },
+        "sourceId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdById": { "type": "string", "maxLength": 128 },
+        "createdByName": { "type": "string", "maxLength": 100 },
+        "updatedById": { "type": "string", "maxLength": 128 },
+        "updatedByName": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["id", "title", "priority", "status", "sourceType", "createdAt", "updatedAt", "createdById", "createdByName", "updatedById", "updatedByName"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": { "schema": "User", "description": "User accounts" },
+    "/admins/{adminId}": { "schema": "Admin", "description": "Administrator registry" },
+    "/companies/{companyId}": { "schema": "Company", "description": "Client companies" },
+    "/company_contacts/{contactId}": { "schema": "CompanyContact", "description": "Internal business contacts for client companies" },
+    "/internal_notes/{noteId}": { "schema": "InternalNote", "description": "Internal business notes for client companies and workers" },
+    "/tasks/{taskId}": { "schema": "Task", "description": "Administrator tasks and deadlines" },
+    "/workers/{workerId}": { "schema": "Worker", "description": "Company workers" },
+    "/maternity_cases/{caseId}": { "schema": "MaternityCase", "description": "Maternity protection cases" },
+    "/maternity_case_private/{caseId}": { "schema": "MaternityCasePrivate", "description": "Confidential internal case notes for administrators" },
+    "/maternity_documents/{documentId}": { "schema": "MaternityDocument", "description": "Maternity case submitted documents" },
+    "/maternity_document_private/{documentId}": { "schema": "MaternityDocumentPrivate", "description": "Confidential review notes for maternity documents strictly for administrators" },
+    "/maternity_deductions/{deductionId}": { "schema": "MaternityDeduction", "description": "Maternity quota deduction ledger items" },
+    "/inquiries/{inquiryId}": { "schema": "Inquiry", "description": "Labor inquiries" },
+    "/inquiry_files/{fileId}": { "schema": "InquiryFile", "description": "Labor inquiry attachments" },
+    "/inquiry_history/{historyId}": { "schema": "InquiryHistory", "description": "Processing history for labor inquiries" },
+    "/consents/{consentId}": { "schema": "UserConsent", "description": "Terms agreement logs" },
+    "/messages/{messageId}": { "schema": "Message", "description": "Inter-role messages" },
+    "/message_templates/{templateId}": { "schema": "MessageTemplate", "description": "Message templates" },
+    "/message_reads/{readId}": { "schema": "MessageRead", "description": "Message read state logs" },
+    "/message_files/{fileId}": { "schema": "MessageFile", "description": "Message file attachments" },
+    "/data_requests/{requestId}": { "schema": "DataRequest", "description": "Document requests" },
+    "/documents/{documentId}": { "schema": "DocumentMeta", "description": "Company documents" },
+    "/notifications/{notificationId}": { "schema": "Notification", "description": "Internal notifications" },
+    "/payrolls/{payrollId}": { "schema": "Payroll", "description": "Employee payroll records" },
+    "/overtime_records/{overtimeId}": { "schema": "OvertimeRecord", "description": "Overtime logs" },
+    "/overtime_sync_meta/{syncId}": { "schema": "OvertimeSyncMeta", "description": "Overtime modification and sync metadata" },
+    "/ai_consultations/{consultationId}": { "schema": "AIConsultation", "description": "AI labor consultation records" },
+    "/audit_logs/{logId}": { "schema": "AuditLog", "description": "System audit trail" },
+    "/firm_info/{infoId}": { "schema": "FirmInfo", "description": "Labor firm metadata" },
+    "/subscription_requests/{requestId}": { "schema": "SubscriptionRequest", "description": "Subscription change applications" }
+  }
+}

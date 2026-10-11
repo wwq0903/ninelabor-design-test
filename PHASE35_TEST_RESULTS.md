@@ -1,0 +1,24 @@
+# 35차 검사 결과
+
+- PASS: `check:security:offline` — exit 0
+- PASS: `check:imports` — exit 0
+- PASS: `check:branch:phase17` — exit 0
+- PASS: `check:security:phase18` — exit 0
+- PASS: `check:security:phase19` — exit 0
+- PASS: `check:offline-only` — exit 0
+- PASS: `check:syntax` — exit 0
+- PASS: `check:security:phase22` — exit 0
+- PASS: `check:security:phase23` — exit 0
+- PASS: `check:plan-dates` — exit 0
+- PASS: `check:migration:phase24` — exit 0
+- PASS: `check:security:phase25` — exit 0
+- PASS: `check:security:phase26` — exit 0
+- PASS: `check:security:phase27` — exit 0
+- PASS: `check:security:phase28` — exit 0
+- PASS: `check:security:phase29` — exit 0
+- PASS: `check:http:phase30` — exit 0
+- PASS: `check:phase31` — exit 0
+- PASS: `check:phase32` — exit 0
+- PASS: `check:phase33` — exit 0
+- PASS: `check:phase34` — exit 0
+- PASS: `check:phase35` — exit 0

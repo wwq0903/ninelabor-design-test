@@ -1,0 +1,1596 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isCurrentUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+    }
+
+    // Both persisted records and an active administrator are required.
+    // Never authorize on an admin document OR a self-declared user role alone.
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'ADMIN' &&
+        get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('active', false) == true &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isActive', true) != false &&
+        !(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('status', '') in ['SUSPENDED', 'DELETED']);
+    }
+
+    function isCompanyManager(companyId) {
+      return isSignedIn() && (
+        (getUserData().get('role', '') == 'COMPANY' || isAdmin()) &&
+        getUserData().get('companyId', '') == companyId
+      );
+    }
+
+    // ==========================================
+    // Company Subscription Helper Functions
+    // Source of Truth: companies/{companyId}.subscription
+    // currentPlanId is for legacy backward-compatibility and MUST NOT be used for access control.
+    // [R2-8 2/4-C-⑧] 구독 생명주기 및 기간 유효성 검증:
+    // - status == 'ACTIVE'
+    // - startDate가 존재하면 request.time >= startDate (시작일 이상)
+    // - endDate가 존재하면 request.time <= endDate 23:59:59 (종료일 이하)
+    // - startDate/endDate가 없는 기존 ACTIVE 구독은 운영 호환성을 위해 인정
+    // - CANCELLED, PENDING, EXPIRED는 업무 기능 차단
+    // ==========================================
+
+    function isSubscriptionDateActive(sub) {
+      return (
+        !('startDate' in sub) ||
+        sub.startDate == null ||
+        sub.startDate == '' ||
+        request.time >= timestamp.date(
+          int(sub.startDate.split('-')[0]),
+          int(sub.startDate.split('-')[1]),
+          int(sub.startDate.split('-')[2])
+        )
+      ) && (
+        !('endDate' in sub) ||
+        sub.endDate == null ||
+        sub.endDate == '' ||
+        request.time < timestamp.date(
+          int(sub.endDate.split('-')[0]),
+          int(sub.endDate.split('-')[1]),
+          int(sub.endDate.split('-')[2])
+        ) + duration.value(24, 'h')
+      );
+    }
+
+    function isCompanySubscriptionActive(companyId) {
+      return companyId is string && companyId.size() > 0 &&
+        exists(/databases/$(database)/documents/companies/$(companyId)) &&
+        'subscription' in get(/databases/$(database)/documents/companies/$(companyId)).data &&
+        get(/databases/$(database)/documents/companies/$(companyId)).data.subscription != null &&
+        'status' in get(/databases/$(database)/documents/companies/$(companyId)).data.subscription &&
+        get(/databases/$(database)/documents/companies/$(companyId)).data.subscription.status == 'ACTIVE' &&
+        isSubscriptionDateActive(get(/databases/$(database)/documents/companies/$(companyId)).data.subscription);
+    }
+
+    function getCompanyPlanCode(companyId) {
+      return isCompanySubscriptionActive(companyId) &&
+        'planCode' in get(/databases/$(database)/documents/companies/$(companyId)).data.subscription &&
+        get(/databases/$(database)/documents/companies/$(companyId)).data.subscription.planCode is string
+        ? get(/databases/$(database)/documents/companies/$(companyId)).data.subscription.planCode
+        : '';
+    }
+
+    function hasCompanyPlan(companyId, allowedPlans) {
+      return isCompanySubscriptionActive(companyId) &&
+        getCompanyPlanCode(companyId) in allowedPlans;
+    }
+
+    function hasCompanyBasicPlan(companyId) {
+      return hasCompanyPlan(companyId, ['BASIC', 'STANDARD', 'OUTSOURCING', 'CUSTOM']);
+    }
+
+    function hasCompanyStandardPlan(companyId) {
+      return hasCompanyPlan(companyId, ['STANDARD', 'OUTSOURCING', 'CUSTOM']);
+    }
+
+    function hasCompanyOutsourcingPlan(companyId) {
+      return hasCompanyPlan(companyId, ['OUTSOURCING']);
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      allow get: if isCurrentUser(userId) || isAdmin();
+      allow list: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+
+      // Create: User can create their initial profile upon signup.
+      // Privilege escalation guard: Cannot set role to 'ADMIN' or 'ATTORNEY'.
+      // Affiliation guard: WORKER cannot assign companyId, employeeId or ACTIVE status.
+      allow create: if isSignedIn() && (
+        isAdmin() || (
+          request.auth.uid == userId &&
+          request.resource.data.uid == request.auth.uid &&
+          (request.resource.data.role == 'COMPANY' || request.resource.data.role == 'WORKER') &&
+          (!('isAdmin' in request.resource.data) || request.resource.data.isAdmin == false) &&
+          // A self-registered COMPANY must not claim an existing tenant or elevated membership.
+          (request.resource.data.role != 'COMPANY' || (
+            (!('companyId' in request.resource.data) || request.resource.data.companyId == null || request.resource.data.companyId == '') &&
+            request.resource.data.membershipStatus == 'PENDING_COMPANY_VERIFICATION' &&
+            (!('branchId' in request.resource.data) || request.resource.data.branchId == null || request.resource.data.branchId == '')
+          )) &&
+          (
+            request.resource.data.role != 'WORKER' || (
+              (!('companyId' in request.resource.data) || request.resource.data.companyId == null) &&
+              (!('employeeId' in request.resource.data) || request.resource.data.employeeId == null) &&
+              (!('membershipStatus' in request.resource.data) || 
+                request.resource.data.membershipStatus == 'PENDING_COMPANY_VERIFICATION' || 
+                request.resource.data.membershipType == 'INDIVIDUAL')
+            )
+          )
+        )
+      );
+
+      // Update: ADMIN can update all fields (including role, company approval, employeeId).
+      // Normal user (isCurrentUser): STRICT ALLOWLIST ONLY.
+      // CANNOT alter role, companyId, membershipType, employeeId, membershipStatus, isAdmin.
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          isCurrentUser(userId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'displayName',
+            'name',
+            'phone',
+            'updatedAt',
+            'photoURL',
+            'department',
+            'position'
+          ])
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // Admins Collection
+    match /admins/{adminId} {
+      // Non-admin users may inspect only their own admin record (if any).
+      // Admin directory enumeration is reserved for authenticated administrators.
+      allow get: if isAdmin() || isCurrentUser(adminId);
+      allow list: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Companies Collection
+    // Strict isolation:
+    // - ADMIN: Full management access
+    // - COMPANY: Can ONLY get and update its own companyId record
+    // - WORKER: Prohibited from getting or listing actual companies documents
+    // - General: Blanket allow read/create is strictly removed
+    match /companies/{companyId} {
+      allow get: if isSignedIn() && (
+        adminCanAccessCompany(companyId) ||
+        (getUserData().get('role', '') == 'COMPANY' && getUserData().get('companyId', '') == companyId)
+      );
+
+      allow list: if isAdmin() && adminBranchId() != '' &&
+        resource.data.get('branchId', '') == adminBranchId();
+
+      // Only an administrator may provision a company tenant. Public registration
+      // creates a pending user profile, never a tenant or an active membership.
+      allow create: if isAdmin() && canAccessTaggedBranch(request.resource.data) &&
+        request.resource.data.get('branchId', '') == adminBranchId();
+
+      // Offline-only policy: company representatives may edit business contact fields,
+      // never plan/branch/owner/tenant identifiers or retired subscription-request locks.
+      // Default-deny for any newly introduced field prevents silent privilege escalation.
+      allow update: if isSignedIn() && (
+        (adminCanAccessCompany(companyId) && taggedBranchUnchanged()) || (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') == companyId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'companyName', 'representativeName', 'contactEmail', 'contactPhone',
+            'address', 'website', 'industry', 'businessType', 'updatedAt'
+          ])
+        )
+      );
+
+      allow delete: if adminCanAccessCompany(companyId);
+    }
+
+    // Phase 9: staged branch isolation for branch-tagged internal records.
+    // Legacy documents without branchId retain previous behavior until migration.
+    // Missing branchId on an admin identity NEVER grants access to tagged records.
+    function adminBranchId() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.get('branchId', '')
+        : getUserData().get('branchId', '');
+    }
+
+    function canAccessTaggedBranch(data) {
+      return isAdmin() && (
+        !('branchId' in data) ||
+        (data.branchId is string && data.branchId.size() > 0 &&
+         adminBranchId() == data.branchId)
+      );
+    }
+
+    // Phase 17: scope admin access to a company's authoritative branch.
+    // Legacy companies without branchId remain accessible until audited migration.
+    function adminCanAccessCompany(companyId) {
+      return isAdmin() && companyId is string && companyId.size() > 0 &&
+        exists(/databases/$(database)/documents/companies/$(companyId)) &&
+        get(/databases/$(database)/documents/companies/$(companyId)).data.get('branchId', '') == adminBranchId() &&
+        adminBranchId() != '';
+    }
+
+    function adminCanAccessOptionalCompany(data) {
+      return isAdmin() && canAccessTaggedBranch(data) && (
+        !('companyId' in data) || data.companyId == null || data.companyId == '' ||
+        adminCanAccessCompany(data.companyId)
+      );
+    }
+
+    function taggedBranchUnchanged() {
+      return request.resource.data.get('branchId', null) == resource.data.get('branchId', null);
+    }
+
+    // [R3-1 1/3, R3-1 3/3] Company Contacts Collection (company_contacts/{contactId})
+    // - ADMIN: 조회/생성/수정 가능 (노무법인 내부 실무 업무 정보)
+    // - 삭제(delete) 엄격히 금지 (소프트 비활성화만 허용)
+    // - COMPANY: 접근 불가
+    // - WORKER: 접근 불가
+    match /company_contacts/{contactId} {
+      allow read: if canAccessTaggedBranch(resource.data);
+      allow create: if canAccessTaggedBranch(request.resource.data);
+      allow update: if canAccessTaggedBranch(resource.data) && taggedBranchUnchanged();
+      allow delete: if false;
+    }
+
+    // [R3-2 1/3 & 3/3] Internal Notes Collection (internal_notes/{noteId})
+    // - 노무법인 ADMIN만 사용하는 내부 업무 메모 (기업 및 근로자)
+    // - ADMIN: 조회/생성/수정/상태변경 가능 (단, targetType/targetId/companyId는 불변)
+    // - COMPANY / WORKER: 읽기/쓰기 모두 엄격히 차단
+    // - 삭제(delete)는 데이터 보존을 위해 완전 금지 (소프트 비활성화만 허용)
+    match /internal_notes/{noteId} {
+      allow read: if canAccessTaggedBranch(resource.data);
+      allow create: if canAccessTaggedBranch(request.resource.data);
+      allow update: if canAccessTaggedBranch(resource.data) && taggedBranchUnchanged() &&
+        request.resource.data.targetType == resource.data.targetType &&
+        request.resource.data.targetId == resource.data.targetId &&
+        request.resource.data.companyId == resource.data.companyId;
+      allow delete: if false;
+    }
+
+    // ==========================================
+    // [R3-3 1/3 & R3-3 3/3-C-①] Tasks Helper Functions & Security Rules
+    // - 노무법인 ADMIN 전용 통합 할 일·마감일 관리
+    // - ADMIN: 조회/생성/수정 허용 (엄격한 스키마, 타입, enum, source, 불변 필드 검증)
+    // - COMPANY / WORKER / 미로그인: 전체 접근 엄격히 차단 (DENIED)
+    // - 삭제(delete): 모든 사용자 영구 차단 (DENIED)
+    // ==========================================
+
+    function isValidTaskPriority(priority) {
+      return priority in ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+    }
+
+    function isValidTaskStatus(status) {
+      return status in ['TODO', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+    }
+
+    function isValidTaskSourceType(sourceType) {
+      return sourceType in [
+        'MANUAL',
+        'INQUIRY',
+        'DATA_REQUEST',
+        'MATERNITY',
+        'PAYROLL',
+        'MESSAGE',
+        'DOCUMENT',
+        'OTHER'
+      ];
+    }
+
+    // [R3-3 3/3-C-①] Source 규칙: MANUAL은 sourceId 불가, MANUAL 외에는 유효한 sourceId 필수
+    function isValidTaskSource(data) {
+      return data.sourceType == 'MANUAL'
+        ? (!('sourceId' in data) || data.sourceId == null || data.sourceId == '')
+        : ('sourceId' in data && data.sourceId is string && data.sourceId.size() > 0);
+    }
+
+    // [R3-3 3/3-C-①] completedAt 규칙: COMPLETED 일 때만 completedAt 허용, 재오픈/비완료 시 completedAt 미보유
+    function isValidTaskCompletedAt(data) {
+      return data.status == 'COMPLETED'
+        ? (!('completedAt' in data) || (data.completedAt is string && data.completedAt.size() > 0))
+        : (!('completedAt' in data) || data.completedAt == null || data.completedAt == '');
+    }
+
+    // [R3-3 3/3-C-①] Task 필드 타입 및 필수값 기본 검증
+    function isValidTaskBaseFields(data) {
+      return data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+        isValidTaskPriority(data.priority) &&
+        isValidTaskStatus(data.status) &&
+        isValidTaskSourceType(data.sourceType) &&
+        isValidTaskSource(data) &&
+        isValidTaskCompletedAt(data) &&
+        data.createdAt is string && data.createdAt.size() > 0 &&
+        data.updatedAt is string && data.updatedAt.size() > 0 &&
+        data.createdById is string && data.createdById.size() > 0 &&
+        data.createdByName is string && data.createdByName.size() > 0 &&
+        data.updatedById is string && data.updatedById.size() > 0 &&
+        data.updatedByName is string && data.updatedByName.size() > 0 &&
+        (!('description' in data) || data.description == null || data.description is string) &&
+        (!('companyId' in data) || data.companyId == null || (data.companyId is string && data.companyId.size() > 0)) &&
+        (!('workerId' in data) || data.workerId == null || (data.workerId is string && data.workerId.size() > 0)) &&
+        (!('dueDate' in data) || data.dueDate == null || (data.dueDate is string && data.dueDate.size() > 0));
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isAdmin();
+
+      // [R3-3 3/3-C-①] create 검증: ADMIN 전용 + 올바른 구조/타입/enum/source 규칙 강제
+      allow create: if isAdmin() &&
+        request.resource.data.id == taskId &&
+        isValidTaskBaseFields(request.resource.data);
+
+      // [R3-3 3/3-C-①] update 보호: ADMIN 전용 + 생성 메타데이터(id, createdAt, createdById, createdByName) 불변 보장
+      allow update: if isAdmin() &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.createdById == resource.data.createdById &&
+        request.resource.data.createdByName == resource.data.createdByName &&
+        isValidTaskBaseFields(request.resource.data);
+
+      // 모든 사용자 삭제 완전 차단
+      allow delete: if false;
+    }
+
+    // [R3-3 3/3-C-②-B] 출처 락 문서 유효성 검증 함수
+    function isValidTaskSourceLock(data, lockId) {
+      return data.id == lockId &&
+        data.sourceType in ['INQUIRY', 'DATA_REQUEST', 'MATERNITY', 'PAYROLL', 'MESSAGE', 'DOCUMENT', 'OTHER'] &&
+        data.sourceId is string && data.sourceId.size() > 0 && data.sourceId.size() <= 100 &&
+        lockId == data.sourceType + '__' + data.sourceId &&
+        data.updatedAt is string && data.updatedAt.size() > 0 &&
+        data.keys().hasOnly(['id', 'sourceType', 'sourceId', 'activeTaskId', 'activeTaskStatus', 'updatedAt']) &&
+        (
+          // 활성 락: activeTaskId가 유효한 문자열이고 activeTaskStatus가 TODO 또는 IN_PROGRESS
+          (data.activeTaskId is string && data.activeTaskId.size() > 0 &&
+           (data.activeTaskStatus == 'TODO' || data.activeTaskStatus == 'IN_PROGRESS')) ||
+          // 해제된 락: activeTaskId가 null이고 activeTaskStatus가 null, COMPLETED 또는 CANCELLED
+          (data.activeTaskId == null &&
+           (data.activeTaskStatus == null || data.activeTaskStatus == 'COMPLETED' || data.activeTaskStatus == 'CANCELLED'))
+        );
+    }
+
+    // [R3-3 3/3-C-②-B] 출처별 활성 task 원자성 보장 전용 락 문서 (ADMIN 전용 + 구조/타입/불변 필드 엄격 검증)
+    match /task_source_locks/{lockId} {
+      allow read: if isAdmin();
+
+      // create: ADMIN 전용 + 올바른 규격(id == lockId == sourceType + '__' + sourceId, 비어있지 않은 sourceId 등)
+      allow create: if isAdmin() &&
+        isValidTaskSourceLock(request.resource.data, lockId);
+
+      // update: ADMIN 전용 + id, sourceType, sourceId 불변 보장 (임의 변조 차단) + 유효한 락 상태
+      allow update: if isAdmin() &&
+        request.resource.data.id == resource.data.id &&
+        request.resource.data.sourceType == resource.data.sourceType &&
+        request.resource.data.sourceId == resource.data.sourceId &&
+        isValidTaskSourceLock(request.resource.data, lockId);
+
+      // delete: 모든 사용자 차단 (직접 삭제 불가)
+      allow delete: if false;
+    }
+
+    // Company Directory Collection (Public Search Index)
+    // Minimal non-sensitive info strictly for worker signup search: companyId, companyName, businessNumberMasked
+    // No worker info, salary, subscription/billing, internal notes, documents, or admin details
+    match /company_directory/{companyId} {
+      allow get: if true;
+      allow list: if true;
+
+      // Public directory is readable but must never be writable by a self-registered account.
+      // The public index must never be writable by another branch's admin
+      // or by a company account (which could forge its displayed identity).
+      allow create: if isAdmin() && adminBranchId() != '' &&
+        existsAfter(/databases/$(database)/documents/companies/$(companyId)) &&
+        getAfter(/databases/$(database)/documents/companies/$(companyId)).data.get('branchId', '') == adminBranchId() &&
+        request.resource.data.get('companyId', '') == companyId &&
+        request.resource.data.keys().hasOnly(['companyId', 'companyName', 'businessNumberMasked', 'createdAt', 'updatedAt']);
+
+      allow update: if adminCanAccessCompany(companyId) &&
+        request.resource.data.get('companyId', '') == companyId &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['companyName', 'businessNumberMasked', 'updatedAt']);
+
+      allow delete: if adminCanAccessCompany(companyId);
+    }
+
+    // Workers Collection
+    // Strict isolation: WORKER cannot list or read other workers in the company.
+    // COMPANY can view/manage workers belonging to its companyId ONLY with ACTIVE BASIC+ plan (BASIC, STANDARD, OUTSOURCING, CUSTOM).
+    // ADMIN has full access.
+    match /workers/{workerId} {
+      allow get: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', ''))
+        ) ||
+        (resource.data.get('userId', '') != '' && resource.data.get('userId', '') == request.auth.uid)
+      );
+
+      allow list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', ''))
+        ) ||
+        (getUserData().get('role', '') == 'WORKER' && resource.data.get('userId', '') != '' && resource.data.get('userId', '') == request.auth.uid)
+      );
+
+      allow create: if isSignedIn() && (
+        canAccessTaggedBranch(request.resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', ''))
+        )
+      );
+
+      allow update: if isSignedIn() && taggedBranchUnchanged() && (
+        (canAccessTaggedBranch(resource.data) && taggedBranchUnchanged()) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', ''))
+        ) ||
+        (resource.data.get('userId', '') != '' && resource.data.get('userId', '') == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['phone', 'updatedAt']))
+      );
+
+      allow delete: if canAccessTaggedBranch(resource.data) || (
+        isSignedIn() &&
+        getUserData().get('role', '') == 'COMPANY' &&
+        getUserData().get('companyId', '') != '' &&
+        resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+        hasCompanyBasicPlan(getUserData().get('companyId', ''))
+      );
+    }
+
+    // Worker Sensitive Data Collection (Encrypted Resident Registration Numbers)
+    // Security Mandate:
+    // Direct client-side reads are restricted to ADMIN only (COMPANY/WORKER strictly denied).
+    // All writes must pass through authenticated server encryption endpoints.
+    // Client SDK cannot directly create, overwrite, or delete sensitive payloads.
+    match /worker_sensitive_data/{sensitiveId} {
+      allow read: if canAccessTaggedBranch(resource.data);
+      allow create, update, delete: if false;
+    }
+
+    // Maternity Cases Collection
+    // Strict WORKER isolation: WORKER can ONLY view/create their own case if ACTIVE.
+    // PENDING workers are DENIED.
+    match /maternity_cases/{caseId} {
+      allow get: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (getUserData().get('role', '') == 'COMPANY' && getUserData().get('companyId', '') != '' && resource.data.get('companyId', '') == getUserData().get('companyId', '')) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipStatus', '') == 'ACTIVE' &&
+          (resource.data.get('employeeId', '') == request.auth.uid || 
+           (getUserData().get('employeeId', '') != '' && resource.data.get('employeeId', '') == getUserData().get('employeeId', '')) || 
+           resource.data.get('createdById', '') == request.auth.uid)
+        )
+      );
+
+      allow list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (getUserData().get('role', '') == 'COMPANY' && getUserData().get('companyId', '') != '' && resource.data.get('companyId', '') == getUserData().get('companyId', '')) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipStatus', '') == 'ACTIVE' &&
+          (resource.data.get('employeeId', '') == request.auth.uid || 
+           (getUserData().get('employeeId', '') != '' && resource.data.get('employeeId', '') == getUserData().get('employeeId', '')) || 
+           resource.data.get('createdById', '') == request.auth.uid)
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        canAccessTaggedBranch(request.resource.data) ||
+        (getUserData().get('role', '') == 'COMPANY' && getUserData().get('companyId', '') != '' && request.resource.data.get('companyId', '') == getUserData().get('companyId', '')) ||
+        (getUserData().get('role', '') == 'WORKER' && getUserData().get('membershipStatus', '') == 'ACTIVE' && request.resource.data.get('createdById', '') == request.auth.uid)
+      );
+
+      allow update: if isSignedIn() && (
+        (canAccessTaggedBranch(resource.data) && taggedBranchUnchanged()) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          request.resource.data.get('companyId', '') == resource.data.get('companyId', '') &&
+          resource.data.get('status', '') != 'COMPLETED' &&
+          (
+            !('status' in request.resource.data) ||
+            request.resource.data.status == resource.data.status ||
+            (resource.data.get('status', '') == 'SUPPLEMENT_REQUESTED' && request.resource.data.status == 'UNDER_REVIEW')
+          )
+        )
+      );
+
+      allow delete: if canAccessTaggedBranch(resource.data);
+    }
+
+    // Maternity Case Private Collection (ADMIN Only)
+    // Strictly isolates internal administrative notes and sensitive attorney annotations.
+    // COMPANY and WORKER read/write strictly DENIED.
+    match /maternity_case_private/{caseId} {
+      allow get, list: if canAccessTaggedBranch(resource.data);
+      allow create: if canAccessTaggedBranch(request.resource.data);
+      allow update: if canAccessTaggedBranch(resource.data) && taggedBranchUnchanged();
+      allow delete: if canAccessTaggedBranch(resource.data);
+    }
+
+    // Maternity Documents Collection (R2-4 보안 보완 1/3 & 2/3)
+    // Strict isolation:
+    // - ADMIN: 전체 조회 가능
+    // - COMPANY: 자기 companyId 문서만 조회 가능
+    // - WORKER: 본인 모성보호 사건(canonical employeeId 기준)의 문서만 조회 가능 (ACTIVE 회원만)
+    //           uploadedById는 권한 판단 기준에서 완전히 배제
+    // - 비로그인: 조회 불가
+    match /maternity_documents/{documentId} {
+      allow get, list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '')
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipStatus', '') == 'ACTIVE' &&
+          (
+            (getUserData().get('employeeId', '') != '' && resource.data.get('employeeId', '') == getUserData().get('employeeId', '')) ||
+            (
+              resource.data.get('caseId', '') != '' &&
+              exists(/databases/$(database)/documents/maternity_cases/$(resource.data.get('caseId', ''))) &&
+              getUserData().get('employeeId', '') != '' &&
+              get(/databases/$(database)/documents/maternity_cases/$(resource.data.get('caseId', ''))).data.get('employeeId', '') == getUserData().get('employeeId', '')
+            )
+          )
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        canAccessTaggedBranch(request.resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '')
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipStatus', '') == 'ACTIVE' &&
+          getUserData().get('employeeId', '') != '' &&
+          request.resource.data.get('employeeId', '') == getUserData().get('employeeId', '')
+        )
+      );
+
+      allow update: if isSignedIn() && (
+        (canAccessTaggedBranch(resource.data) && taggedBranchUnchanged()) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          request.resource.data.get('companyId', '') == resource.data.get('companyId', '')
+        )
+      );
+
+      allow delete: if canAccessTaggedBranch(resource.data);
+    }
+
+    // Maternity Document Private Collection (ADMIN Only)
+    // Sensitive audit notes, legal verification findings, and internal review records strictly accessible by ADMIN.
+    // COMPANY and WORKER read/write strictly DENIED.
+    match /maternity_document_private/{documentId} {
+      allow get, list: if canAccessTaggedBranch(resource.data);
+      allow create: if canAccessTaggedBranch(request.resource.data);
+      allow update: if canAccessTaggedBranch(resource.data) && taggedBranchUnchanged();
+      allow delete: if canAccessTaggedBranch(resource.data);
+    }
+
+    // Maternity Deductions Collection (R2-8 2/4-A-⑥-1)
+    // Server-authoritative deduction ledger:
+    // - ADMIN: 전체 조회 및 관리 권한
+    // - COMPANY: 본인 소속 기업(companyId 일치)의 차감 원장만 조회 허용
+    // - WORKER / 비로그인: 전면 차단
+    // - 쓰기(생성/수정/삭제): 위조 방지를 위해 오직 ADMIN 권한 또는 서버 Admin SDK 트랜잭션을 통해서만 허용
+    match /maternity_deductions/{deductionId} {
+      allow get, list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (getUserData().get('role', '') == 'COMPANY' && getUserData().get('companyId', '') != '' && resource.data.get('companyId', '') == getUserData().get('companyId', ''))
+      );
+      allow create, update, delete: if canAccessTaggedBranch(resource.data);
+    }
+
+    // Inquiries Collection (R2-5 1/3-A 통합 문의)
+    // Strict isolation & RBAC:
+    // - ADMIN: 전체 접근 (조회/등록/수정/삭제)
+    // - COMPANY: 자기 companyId 문의만 등록 및 조회
+    // - 회사 소속 WORKER (membershipType == 'COMPANY_AFFILIATED' or companyId != null): 완전 차단 (접근 불가)
+    // - 비소속 개인 WORKER (membershipType == 'INDIVIDUAL' and companyId == null): 본인 작성 문의만 등록 및 조회
+    // - 비로그인: 완전 차단
+    match /inquiries/{inquiryId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', ''))
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          (
+            resource.data.get('requesterId', '') == request.auth.uid ||
+            resource.data.get('authorId', '') == request.auth.uid
+          )
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', '')) &&
+          (
+            request.resource.data.get('requesterId', '') == request.auth.uid ||
+            request.resource.data.get('authorId', '') == request.auth.uid
+          )
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          (request.resource.data.get('companyId', null) == null || request.resource.data.get('companyId', '') == '') &&
+          (
+            request.resource.data.get('requesterId', '') == request.auth.uid ||
+            request.resource.data.get('authorId', '') == request.auth.uid
+          )
+        )
+      );
+
+      // [R2-5 1/3-C-2-①] 문의 수정 및 잠금 정책
+      // 1. ADMIN: 사용자 원문(title/content) 수정 금지, 상태 변경 및 답변 등 관리 필드만 수정 가능
+      // 2. COMPANY / 비소속 개인 WORKER:
+      //    - status == 'RECEIVED' (접수 상태에서만)
+      //    - 아직 ADMIN 답변(answer)이 없는 경우에만
+      //    - 오직 title, content, updatedAt 만 수정 가능 (불변 필드 보호)
+      allow update: if isSignedIn() && (
+        (
+          isAdmin() &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'title',
+            'content',
+            'companyId',
+            'requesterId',
+            'requesterRole',
+            'requesterName',
+            'authorId',
+            'authorRole',
+            'createdAt'
+          ])
+        ) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          request.resource.data.get('companyId', '') == resource.data.get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', '')) &&
+          resource.data.get('status', 'RECEIVED') == 'RECEIVED' &&
+          (resource.data.get('answer', null) == null || resource.data.get('answer', '') == '') &&
+          (resource.data.get('reply', null) == null || resource.data.get('reply', '') == '') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'content', 'updatedAt']) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'companyId',
+            'requesterId',
+            'requesterRole',
+            'requesterName',
+            'authorId',
+            'authorRole',
+            'status',
+            'answer',
+            'answeredAt',
+            'answeredById',
+            'answeredByName',
+            'createdAt'
+          ])
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          (
+            resource.data.get('requesterId', '') == request.auth.uid ||
+            resource.data.get('authorId', '') == request.auth.uid
+          ) &&
+          resource.data.get('status', 'RECEIVED') == 'RECEIVED' &&
+          (resource.data.get('answer', null) == null || resource.data.get('answer', '') == '') &&
+          (resource.data.get('reply', null) == null || resource.data.get('reply', '') == '') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['title', 'content', 'updatedAt']) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'companyId',
+            'requesterId',
+            'requesterRole',
+            'requesterName',
+            'authorId',
+            'authorRole',
+            'status',
+            'answer',
+            'answeredAt',
+            'answeredById',
+            'answeredByName',
+            'createdAt'
+          ])
+        )
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // Inquiry Files Collection (R2-5 1/3-C 통합 문의 첨부파일)
+    // Strict isolation & RBAC:
+    // - ADMIN: 모든 inquiry_files 조회 및 생성 가능
+    // - COMPANY: 자기 companyId의 문의 파일만 조회 및 생성 가능 (ACTIVE STANDARD, OUTSOURCING, CUSTOM 플랜 필수)
+    // - 비소속 개인 WORKER: 본인이 작성한 문의의 파일(requesterId == auth.uid)만 조회 및 생성 가능
+    // - 회사 소속 WORKER: 접근 불가 (차단)
+    // - 비로그인: 접근 불가 (차단)
+    match /inquiry_files/{fileId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', ''))
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          resource.data.get('requesterId', '') == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', '')) &&
+          request.resource.data.get('uploadedById', '') == request.auth.uid &&
+          request.resource.data.get('uploadedByRole', '') == 'COMPANY' &&
+          exists(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)) &&
+          get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('companyId', '') == getUserData().get('companyId', '')
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          (request.resource.data.get('companyId', null) == null || request.resource.data.get('companyId', '') == '') &&
+          request.resource.data.get('requesterId', '') == request.auth.uid &&
+          request.resource.data.get('uploadedById', '') == request.auth.uid &&
+          request.resource.data.get('uploadedByRole', '') == 'WORKER' &&
+          exists(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)) &&
+          (
+            get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('requesterId', '') == request.auth.uid ||
+            get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('authorId', '') == request.auth.uid
+          )
+        )
+      );
+
+      allow update: if false;
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', '')) &&
+          resource.data.get('uploadedById', '') == request.auth.uid
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          (resource.data.get('companyId', null) == null || resource.data.get('companyId', '') == '') &&
+          resource.data.get('requesterId', '') == request.auth.uid &&
+          resource.data.get('uploadedById', '') == request.auth.uid
+        )
+      );
+    }
+
+    // Inquiry History Collection (R2-5 1/3-C-2-② 통합 문의 처리이력)
+    // 별도 컬렉션: inquiry_history
+    // 불변 감사 추적(Immutable Processing History): 수정 및 삭제 완전 차단
+    // - ADMIN: 모든 문의 처리이력 조회 및 상태/답변/종결 이력 생성 가능
+    // - COMPANY: 자사 문의만 조회 가능, 본인의 INQUIRY_CREATED / INQUIRY_EDITED 이벤트만 생성 가능 (ACTIVE STANDARD, OUTSOURCING, CUSTOM 플랜 필수)
+    // - 비소속 개인 WORKER: 본인 문의만 조회 가능, 본인의 INQUIRY_CREATED / INQUIRY_EDITED 이벤트만 생성 가능
+    // - 회사 소속 WORKER: 접근 불가 (차단)
+    // - 비로그인: 접근 불가 (차단)
+    // - 수정 및 삭제: ADMIN을 포함한 모든 사용자에게 완전 차단 (불변성 보장)
+    match /inquiry_history/{historyId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', ''))
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          resource.data.get('requesterId', '') == request.auth.uid
+        )
+      );
+
+      // [보안 검증 및 위조 방지]
+      // 1. eventType 제한: COMPANY / 개인 WORKER는 오직 INQUIRY_CREATED, INQUIRY_EDITED만 생성 허용
+      //    (STATUS_CHANGED, ANSWER_CREATED, ANSWER_UPDATED, INQUIRY_CLOSED는 ADMIN만 생성 가능)
+      // 2. 위조 방지: actorId == auth.uid, actorRole == 실제 역할, inquiryId 소유권 일치,
+      //    companyId 및 requesterId가 실제 원본 문의 데이터와 엄격히 일치
+      allow create: if isSignedIn() && (
+        (
+          isAdmin() &&
+          request.resource.data.get('actorId', '') == request.auth.uid &&
+          request.resource.data.get('actorRole', '') == 'ADMIN' &&
+          exists(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)) &&
+          request.resource.data.get('eventType', '') in [
+            'STATUS_CHANGED',
+            'ANSWER_CREATED',
+            'ANSWER_UPDATED',
+            'INQUIRY_CLOSED',
+            'INQUIRY_CREATED',
+            'INQUIRY_EDITED'
+          ]
+        ) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyStandardPlan(getUserData().get('companyId', '')) &&
+          request.resource.data.get('actorId', '') == request.auth.uid &&
+          request.resource.data.get('actorRole', '') == 'COMPANY' &&
+          request.resource.data.get('eventType', '') in ['INQUIRY_CREATED', 'INQUIRY_EDITED'] &&
+          request.resource.data.get('actorName', '') is string &&
+          request.resource.data.get('actorName', '').size() > 0 &&
+          request.resource.data.get('actorName', '').size() <= 100 &&
+          exists(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)) &&
+          get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('companyId', '') == getUserData().get('companyId', '') &&
+          request.resource.data.get('companyId', '') == get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('companyId', '') &&
+          request.resource.data.get('requesterId', '') == get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('requesterId', '')
+        ) ||
+        (
+          getUserData().get('role', '') == 'WORKER' &&
+          getUserData().get('membershipType', '') == 'INDIVIDUAL' &&
+          (getUserData().get('companyId', '') == '' || getUserData().get('companyId', null) == null) &&
+          (request.resource.data.get('companyId', null) == null || request.resource.data.get('companyId', '') == '') &&
+          request.resource.data.get('requesterId', '') == request.auth.uid &&
+          request.resource.data.get('actorId', '') == request.auth.uid &&
+          request.resource.data.get('actorRole', '') == 'WORKER' &&
+          request.resource.data.get('eventType', '') in ['INQUIRY_CREATED', 'INQUIRY_EDITED'] &&
+          request.resource.data.get('actorName', '') is string &&
+          request.resource.data.get('actorName', '').size() > 0 &&
+          request.resource.data.get('actorName', '').size() <= 100 &&
+          exists(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)) &&
+          (
+            get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('requesterId', '') == request.auth.uid ||
+            get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('authorId', '') == request.auth.uid
+          ) &&
+          (
+            get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('companyId', null) == null ||
+            get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('companyId', '') == ''
+          ) &&
+          request.resource.data.get('requesterId', '') == get(/databases/$(database)/documents/inquiries/$(request.resource.data.inquiryId)).data.get('requesterId', '')
+        )
+      );
+
+      allow update, delete: if false;
+    }
+
+    // Consents Collection
+    match /consents/{consentId} {
+      allow get, list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isAdmin();
+    }
+
+    // Messages Collection (R2-6 1/3-A 메시지함 기반 구조 및 메시지 불변성 보장)
+    // Strict isolation between ADMIN and COMPANY with complete immutability:
+    // 1. 조회 (get, list):
+    //    - ADMIN: 전체 기업 메시지 조회 허용
+    //    - COMPANY: 자기 회사(companyId 일치)의 메시지만 조회 허용
+    //    - WORKER / 비로그인: 완전히 차단 (접근 불가)
+    // 2. 발송/생성 (create 위조 방지):
+    //    - ADMIN: senderId == auth.uid, senderRole == 'ADMIN', recipientRole == 'COMPANY', companyId 실제 존재 검증
+    //    - COMPANY: senderId == auth.uid, senderRole == 'COMPANY', recipientRole == 'ADMIN', companyId == 사용자 companyId
+    //    - WORKER / 비로그인: 완전히 차단 (접근 불가)
+    // 3. 메시지 불변성 (update):
+    //    - 발송된 메시지 원문 보호를 위해 ADMIN 및 COMPANY 모두 수정 불가 (allow update: if false;)
+    // 4. 삭제 (delete):
+    //    - ADMIN만 허용, COMPANY/WORKER 불가
+    match /messages/{messageId} {
+      allow get, list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '')
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        (
+          canAccessTaggedBranch(request.resource.data) &&
+          request.resource.data.get('senderId', '') == request.auth.uid &&
+          request.resource.data.get('senderRole', '') == 'ADMIN' &&
+          request.resource.data.get('recipientRole', '') == 'COMPANY' &&
+          request.resource.data.get('companyId', '') != '' &&
+          exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId))
+        ) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          request.resource.data.get('senderId', '') == request.auth.uid &&
+          request.resource.data.get('senderRole', '') == 'COMPANY' &&
+          request.resource.data.get('recipientRole', '') == 'ADMIN'
+        )
+      );
+
+      allow update: if false;
+
+      allow delete: if canAccessTaggedBranch(resource.data);
+    }
+
+    // Message Templates Collection (R2-6 1/3-B-① 메시지 서식 관리)
+    // - ADMIN: 전체 조회, 생성, 수정 허용 (createdById / updatedById 본인 UID 일치 필수)
+    // - COMPANY: ACTIVE 구독 보유 기업만 활성화된 서식(resource.data.isActive == true) get, list 조회 가능 (생성/수정/삭제 엄격 차단)
+    // - WORKER / 비로그인 / 비활성 구독: 완전히 차단 (접근 불가)
+    match /message_templates/{templateId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          resource.data.get('isActive', false) == true
+        )
+      );
+
+      allow create: if isSignedIn() && isAdmin() &&
+        request.resource.data.get('createdById', '') == request.auth.uid &&
+        request.resource.data.get('updatedById', '') == request.auth.uid &&
+        request.resource.data.get('name', '') is string &&
+        request.resource.data.get('name', '').size() > 0 &&
+        request.resource.data.get('content', '') is string &&
+        request.resource.data.get('content', '').size() > 0 &&
+        request.resource.data.get('isActive', true) is bool;
+
+      allow update: if isSignedIn() && isAdmin() &&
+        request.resource.data.get('updatedById', '') == request.auth.uid &&
+        request.resource.data.get('createdById', '') == resource.data.get('createdById', '') &&
+        request.resource.data.get('name', '') is string &&
+        request.resource.data.get('name', '').size() > 0 &&
+        request.resource.data.get('content', '') is string &&
+        request.resource.data.get('content', '').size() > 0 &&
+        request.resource.data.get('isActive', true) is bool;
+
+      allow delete: if false;
+    }
+
+    // Message Reads Collection (R2-6 1/3-C-① 메시지 읽음/안읽음)
+    // 1. 조회 (read):
+    //    - ADMIN: 전체 조회 허용
+    //    - COMPANY: ACTIVE 구독 + 자사(companyId == getUserData().companyId) 및 본인(userId == auth.uid)의 읽음 상태만 조회 허용
+    //    - WORKER / 비로그인 / 비활성 구독: 완전히 차단
+    // 2. 생성 (create):
+    //    - ADMIN:
+    //      * userId == request.auth.uid
+    //      * messageId 실제 존재 확인
+    //      * 원본 메시지의 companyId와 message_reads.companyId 일치
+    //    - COMPANY:
+    //      * ACTIVE 구독 필수
+    //      * userId == request.auth.uid
+    //      * companyId == getUserData().companyId
+    //      * messageId 실제 존재 확인
+    //      * get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == getUserData().companyId
+    //      * get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == request.resource.data.companyId
+    //    - WORKER / 비로그인 / 비활성 구독: 완전히 차단
+    // 3. 수정/삭제 (update/delete):
+    //    - 읽음 상태의 불변성 및 이력 보호를 위해 수정/삭제 완전 차단
+    match /message_reads/{readId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          resource.data.get('userId', '') == request.auth.uid
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        (
+          isAdmin() &&
+          request.resource.data.get('userId', '') == request.auth.uid &&
+          request.resource.data.get('messageId', '') != '' &&
+          request.resource.data.get('companyId', '') != '' &&
+          request.resource.data.get('readAt', '') is string &&
+          request.resource.data.get('id', '') is string &&
+          exists(/databases/$(database)/documents/messages/$(request.resource.data.messageId)) &&
+          get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == request.resource.data.companyId
+        ) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          request.resource.data.get('userId', '') == request.auth.uid &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          request.resource.data.get('messageId', '') != '' &&
+          request.resource.data.get('readAt', '') is string &&
+          request.resource.data.get('id', '') is string &&
+          exists(/databases/$(database)/documents/messages/$(request.resource.data.messageId)) &&
+          get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == getUserData().get('companyId', '') &&
+          get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == request.resource.data.companyId
+        )
+      );
+
+      allow update: if false;
+
+      allow delete: if false;
+    }
+
+    // Message Files Collection (R2-6 1/3-C-② 메시지 첨부파일)
+    // 1. 조회 (read: get, list):
+    //    - ADMIN: 전체 조회 허용
+    //    - COMPANY: ACTIVE 구독 + 자사(companyId == getUserData().companyId) 소속 파일 메타데이터만 조회 허용
+    //    - WORKER / 비로그인 / 비활성 구독: 전면 차단
+    // 2. 생성 (create):
+    //    - 원본 messages 문서와 messageId, companyId 일치 강제 검증
+    //    - 0바이트 차단 및 최대 20MB 제한
+    //    - ADMIN: uploadedById == auth.uid, uploadedByRole == 'ADMIN'
+    //    - COMPANY: ACTIVE 구독 + uploadedById == auth.uid, uploadedByRole == 'COMPANY', companyId == 사용자 companyId
+    // 3. 수정/삭제 (update/delete):
+    //    - update: 파일 메타데이터 불변성 유지 (allow update: if false;)
+    //    - delete: ADMIN 전체 허용, COMPANY는 ACTIVE 구독 + 자기 회사 + 본인이 직접 업로드한 파일만 허용
+    match /message_files/{fileId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '')
+        )
+      );
+
+      allow create: if isSignedIn() && (
+        (
+          isAdmin() &&
+          request.resource.data.get('uploadedById', '') == request.auth.uid &&
+          request.resource.data.get('uploadedByRole', '') == 'ADMIN' &&
+          request.resource.data.get('messageId', '') != '' &&
+          request.resource.data.get('companyId', '') != '' &&
+          request.resource.data.get('storagePath', '') is string &&
+          request.resource.data.get('originalFileName', '') is string &&
+          request.resource.data.get('contentType', '') is string &&
+          request.resource.data.get('size', 0) > 0 &&
+          request.resource.data.get('size', 0) <= 20 * 1024 * 1024 &&
+          exists(/databases/$(database)/documents/messages/$(request.resource.data.messageId)) &&
+          get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == request.resource.data.companyId
+        ) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          request.resource.data.get('uploadedById', '') == request.auth.uid &&
+          request.resource.data.get('uploadedByRole', '') == 'COMPANY' &&
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          request.resource.data.get('messageId', '') != '' &&
+          request.resource.data.get('storagePath', '') is string &&
+          request.resource.data.get('originalFileName', '') is string &&
+          request.resource.data.get('contentType', '') is string &&
+          request.resource.data.get('size', 0) > 0 &&
+          request.resource.data.get('size', 0) <= 20 * 1024 * 1024 &&
+          exists(/databases/$(database)/documents/messages/$(request.resource.data.messageId)) &&
+          get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == getUserData().get('companyId', '') &&
+          get(/databases/$(database)/documents/messages/$(request.resource.data.messageId)).data.get('companyId', '') == request.resource.data.companyId
+        )
+      );
+
+      allow update: if false;
+
+      // [R2-6 1/3-C-③] message_files 삭제 권한 규칙:
+      // - ADMIN: 전체 삭제 허용
+      // - COMPANY: ACTIVE 구독 + 본인 회사 + 원본 메시지도 본인 회사 + uploadedById == auth.uid (본인 업로드 파일만)
+      // - WORKER / 비로그인 / 비활성 구독: 전면 차단
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          isCompanySubscriptionActive(getUserData().get('companyId', '')) &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          resource.data.get('uploadedById', '') == request.auth.uid &&
+          exists(/databases/$(database)/documents/messages/$(resource.data.messageId)) &&
+          get(/databases/$(database)/documents/messages/$(resource.data.messageId)).data.get('companyId', '') == getUserData().get('companyId', '') &&
+          get(/databases/$(database)/documents/messages/$(resource.data.messageId)).data.get('companyId', '') == resource.data.companyId
+        )
+      );
+    }
+
+    // Data Requests Collection
+    // Strict companyId isolation & submission lifecycle:
+    // - ADMIN: Full access (create, read, update, delete) across all companies
+    // - COMPANY: Read/list ONLY where companyId matches own companyId AND has ACTIVE BASIC+ plan (BASIC, STANDARD, OUTSOURCING, CUSTOM); cannot access other company requests
+    //            Can ONLY update status: REQUESTED -> SUBMITTED or REVISION_REQUESTED -> SUBMITTED
+    //            Strictly FORBIDDEN from modifying admin fields (companyId, title, description, requestedItems, dueDate, createdById, createdAt)
+    //            Cannot transition to UNDER_REVIEW, COMPLETED, or REVISION_REQUESTED
+    // - WORKER: Completely DENIED (no read, no write)
+    match /data_requests/{requestId} {
+      allow get, list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', ''))
+        )
+      );
+      allow create: if canAccessTaggedBranch(request.resource.data);
+      allow update: if isSignedIn() && (
+        (canAccessTaggedBranch(resource.data) && taggedBranchUnchanged()) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', '')) &&
+          request.resource.data.get('companyId', '') == resource.data.get('companyId', '') &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'companyId', 'title', 'description', 'requestedItems', 'dueDate', 'createdById', 'createdAt', 'requiredItems', 'content'
+          ]) &&
+          request.resource.data.get('status', '') == 'SUBMITTED' &&
+          (resource.data.get('status', '') == 'REQUESTED' || resource.data.get('status', '') == 'REVISION_REQUESTED') &&
+          request.resource.data.get('submittedById', '') == request.auth.uid
+        )
+      );
+      allow delete: if canAccessTaggedBranch(resource.data);
+    }
+
+    // Company Documents Collection (R2-7 1/3-B 기업 문서 실제 파일 등록)
+    // Company Documents Collection (R2-7 1/3 기업 문서함)
+    // - ADMIN: 모든 기업 문서 조회(get, list), 생성(create), 삭제(delete) ALLOW, update DENY
+    // - COMPANY: 본인 소속 companyId 문서만 조회/생성 ALLOW (ACTIVE BASIC+ 플랜 필요), 삭제는 본인 직접 업로드 문서만 ALLOW (uploadedById == request.auth.uid && ACTIVE BASIC+ 플랜 필요), update DENY
+    // - WORKER: 문서관리 접근 불가 (전면 DENIED)
+    // - 비로그인: 전면 차단 (DENIED)
+    match /company_documents/{documentId} {
+      allow get, list: if isSignedIn() && (
+        adminCanAccessOptionalCompany(resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', ''))
+        )
+      );
+      allow create: if isSignedIn() && (
+        (
+          adminCanAccessOptionalCompany(request.resource.data) &&
+          request.resource.data.companyId is string &&
+          request.resource.data.companyId != '' &&
+          exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) &&
+          request.resource.data.uploadedByRole == 'ADMIN' &&
+          request.resource.data.uploadedById == request.auth.uid &&
+          request.resource.data.storagePath is string &&
+          request.resource.data.storagePath.size() > 0 &&
+          request.resource.data.originalFileName is string &&
+          request.resource.data.originalFileName != '' &&
+          request.resource.data.size is number &&
+          request.resource.data.size > 0
+        ) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          request.resource.data.companyId == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', '')) &&
+          exists(/databases/$(database)/documents/companies/$(request.resource.data.companyId)) &&
+          request.resource.data.uploadedByRole == 'COMPANY' &&
+          request.resource.data.uploadedById == request.auth.uid &&
+          request.resource.data.storagePath is string &&
+          request.resource.data.storagePath.size() > 0 &&
+          request.resource.data.originalFileName is string &&
+          request.resource.data.originalFileName != '' &&
+          request.resource.data.size is number &&
+          request.resource.data.size > 0
+        )
+      );
+      allow update: if false;
+      allow delete: if isSignedIn() && (
+        adminCanAccessOptionalCompany(resource.data) ||
+        (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '') &&
+          hasCompanyBasicPlan(getUserData().get('companyId', '')) &&
+          resource.data.get('uploadedById', '') == request.auth.uid
+        )
+      );
+    }
+
+    // Documents Collection
+    // Strict isolation: WORKER can ONLY access documents matching their employeeId or uploadedById when ACTIVE.
+    // PENDING workers are DENIED.
+    match /documents/{documentId} {
+      allow get, list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (getUserData().role == 'COMPANY' && getUserData().companyId != null && resource.data.companyId != null && resource.data.companyId == getUserData().companyId) ||
+        (
+          getUserData().role == 'WORKER' &&
+          getUserData().membershipStatus == 'ACTIVE' &&
+          (resource.data.employeeId == request.auth.uid || (getUserData().employeeId != null && resource.data.employeeId != null && resource.data.employeeId == getUserData().employeeId) || resource.data.uploadedById == request.auth.uid)
+        )
+      );
+      allow create: if isSignedIn() && (
+        adminCanAccessOptionalCompany(request.resource.data) ||
+        (getUserData().role == 'COMPANY' && getUserData().companyId != null && request.resource.data.companyId != null && request.resource.data.companyId == getUserData().companyId) ||
+        (getUserData().role == 'WORKER' && getUserData().membershipStatus == 'ACTIVE' &&
+         getUserData().companyId is string && getUserData().companyId != '' &&
+         request.resource.data.companyId == getUserData().companyId &&
+         request.resource.data.uploadedById == request.auth.uid &&
+         (!('employeeId' in request.resource.data) ||
+           request.resource.data.employeeId == request.auth.uid ||
+           request.resource.data.employeeId == getUserData().get('employeeId', '')))
+      );
+      allow update: if isSignedIn() && taggedBranchUnchanged() &&
+        request.resource.data.get('companyId', null) == resource.data.get('companyId', null) &&
+        request.resource.data.get('employeeId', null) == resource.data.get('employeeId', null) &&
+        request.resource.data.get('uploadedById', null) == resource.data.get('uploadedById', null) && (
+        adminCanAccessOptionalCompany(resource.data) ||
+        (getUserData().role == 'COMPANY' && getUserData().companyId != null && resource.data.companyId != null && resource.data.companyId == getUserData().companyId)
+      );
+      allow delete: if adminCanAccessOptionalCompany(resource.data);
+    }
+
+    // Notifications are private to their recipient. Admins may send to their own
+    // account or a user in a company/branch they are authorized to manage.
+    // Client-side admin access does not grant unrestricted inbox browsing.
+    function canSendNotificationTo(recipientId) {
+      return isAdmin() && recipientId is string && recipientId.size() > 0 &&
+        exists(/databases/$(database)/documents/users/$(recipientId)) && (
+          recipientId == request.auth.uid ||
+          (
+            get(/databases/$(database)/documents/users/$(recipientId)).data.get('companyId', '') is string &&
+            get(/databases/$(database)/documents/users/$(recipientId)).data.get('companyId', '') != '' &&
+            adminCanAccessCompany(get(/databases/$(database)/documents/users/$(recipientId)).data.get('companyId', ''))
+          ) ||
+          (
+            get(/databases/$(database)/documents/users/$(recipientId)).data.get('companyId', '') == '' &&
+            get(/databases/$(database)/documents/users/$(recipientId)).data.get('branchId', '') is string &&
+            get(/databases/$(database)/documents/users/$(recipientId)).data.get('branchId', '') != '' &&
+            adminBranchId() == get(/databases/$(database)/documents/users/$(recipientId)).data.get('branchId', '')
+          )
+        );
+    }
+
+    match /notifications/{notificationId} {
+      allow get, list: if isSignedIn() && resource.data.get('userId', '') == request.auth.uid;
+      allow create: if isSignedIn() &&
+        canSendNotificationTo(request.resource.data.get('userId', '')) &&
+        request.resource.data.get('isRead', false) == false;
+      allow update: if isSignedIn() &&
+        resource.data.get('userId', '') == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']) &&
+        request.resource.data.get('isRead', false) == true;
+      allow delete: if isSignedIn() && resource.data.get('userId', '') == request.auth.uid;
+    }
+
+    // Phase 101-108: enforce payroll state machine at the database boundary.
+    // A client cannot overwrite a locked payroll, change its tenant identity,
+    // or bypass the status transition rules by writing directly to Firestore.
+    function payrollIdentityUnchanged() {
+      return request.resource.data.get('companyId', '') == resource.data.get('companyId', '') &&
+        request.resource.data.get('employeeId', '') == resource.data.get('employeeId', '') &&
+        request.resource.data.get('belongingYearMonth', '') == resource.data.get('belongingYearMonth', '') &&
+        request.resource.data.get('createdAt', '') == resource.data.get('createdAt', '');
+    }
+
+    function payrollStatusTransitionAllowed() {
+      return (
+        resource.data.get('status', '') == 'DRAFT' &&
+        request.resource.data.get('status', '') == 'CONFIRMED' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'updatedAt', 'updatedById', 'confirmedAt', 'confirmedById',
+          'companyName', 'paymentDate'
+        ]) &&
+        request.resource.data.get('confirmedById', '') == request.auth.uid
+      ) || (
+        resource.data.get('status', '') == 'CONFIRMED' &&
+        request.resource.data.get('status', '') == 'DRAFT' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'updatedAt', 'updatedById', 'cancelledAt',
+          'cancelledById', 'cancellationReason'
+        ]) &&
+        request.resource.data.get('cancelledById', '') == request.auth.uid &&
+        request.resource.data.get('cancellationReason', '') is string &&
+        request.resource.data.get('cancellationReason', '').size() > 0
+      ) || (
+        resource.data.get('status', '') == 'CONFIRMED' &&
+        request.resource.data.get('status', '') == 'PAID' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'updatedAt', 'updatedById', 'paidAt', 'paidById'
+        ]) &&
+        request.resource.data.get('paidById', '') == request.auth.uid
+      );
+    }
+
+    function payrollAdminUpdateAllowed() {
+      return adminCanAccessOptionalCompany(resource.data) &&
+        payrollIdentityUnchanged() &&
+        request.resource.data.get('updatedById', '') == request.auth.uid &&
+        (
+          (resource.data.get('status', '') == 'DRAFT' &&
+           request.resource.data.get('status', '') == 'DRAFT') ||
+          payrollStatusTransitionAllowed()
+        );
+    }
+
+    // Payrolls Collection
+    // Isolated strictly by companyId for COMPANY with ACTIVE OUTSOURCING plan.
+    // WORKER can ONLY see their own payslip (employeeId matching uid or employeeId) when ACTIVE and status in ['CONFIRMED', 'PAID'].
+    // DRAFT payrolls are DENIED for WORKER.
+    // PENDING workers are DENIED.
+    match /payrolls/{payrollId} {
+      allow get, list: if isSignedIn() && (
+        adminCanAccessOptionalCompany(resource.data) ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          resource.data.companyId != null &&
+          resource.data.companyId == getUserData().companyId &&
+          hasCompanyOutsourcingPlan(getUserData().companyId)
+        ) ||
+        (
+          getUserData().role == 'WORKER' &&
+          getUserData().membershipStatus == 'ACTIVE' &&
+          getUserData().companyId is string &&
+          getUserData().companyId != '' &&
+          resource.data.companyId == getUserData().companyId &&
+          resource.data.status in ['CONFIRMED', 'PAID'] &&
+          (resource.data.employeeId == request.auth.uid || (getUserData().employeeId != null && resource.data.employeeId != null && resource.data.employeeId == getUserData().employeeId))
+        )
+      );
+      // COMPANY can only create DRAFT payrolls and edit existing DRAFTs.
+      // CONFIRMED/PAID transitions are restricted to ADMIN; companyId is immutable.
+      allow create: if isSignedIn() && (
+        (adminCanAccessOptionalCompany(request.resource.data) && request.resource.data.get('status', '') == 'DRAFT') ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          request.resource.data.companyId == getUserData().companyId &&
+          request.resource.data.status == 'DRAFT' &&
+          hasCompanyOutsourcingPlan(getUserData().companyId)
+        )
+      );
+      allow update: if isSignedIn() && taggedBranchUnchanged() && (
+        payrollAdminUpdateAllowed() ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          resource.data.companyId == getUserData().companyId &&
+          request.resource.data.companyId == resource.data.companyId &&
+          payrollIdentityUnchanged() &&
+          resource.data.status == 'DRAFT' &&
+          request.resource.data.status == 'DRAFT' &&
+          hasCompanyOutsourcingPlan(getUserData().companyId)
+        )
+      );
+      allow delete: if adminCanAccessOptionalCompany(resource.data) && resource.data.get('status', '') == 'DRAFT';
+    }
+
+    // Overtime Records Collection
+    // Strict isolation:
+    // - ADMIN: Full access (create, read, update, delete) across all companies
+    // - COMPANY: Read, create, update, delete ONLY within own companyId with ACTIVE OUTSOURCING plan; cannot change companyId arbitrarily
+    // - WORKER: Read-only for their own records (by employeeId matching user profile/auth uid); create/update/delete DENIED
+    // - PENDING workers: DENIED
+    match /overtime_records/{overtimeId} {
+      allow get, list: if isSignedIn() && (
+        canAccessTaggedBranch(resource.data) ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          resource.data.companyId != null &&
+          resource.data.companyId == getUserData().companyId &&
+          hasCompanyOutsourcingPlan(getUserData().companyId)
+        ) ||
+        (
+          getUserData().role == 'WORKER' &&
+          getUserData().membershipStatus == 'ACTIVE' &&
+          getUserData().companyId is string &&
+          getUserData().companyId != '' &&
+          resource.data.companyId == getUserData().companyId &&
+          (resource.data.employeeId == request.auth.uid || (getUserData().employeeId != null && resource.data.employeeId != null && resource.data.employeeId == getUserData().employeeId))
+        )
+      );
+      allow create: if isSignedIn() && (
+        canAccessTaggedBranch(request.resource.data) ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          request.resource.data.companyId != null &&
+          request.resource.data.companyId == getUserData().companyId &&
+          hasCompanyOutsourcingPlan(getUserData().companyId)
+        )
+      );
+      allow update: if isSignedIn() && taggedBranchUnchanged() && (
+        (canAccessTaggedBranch(resource.data) && taggedBranchUnchanged()) ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          resource.data.companyId != null &&
+          resource.data.companyId == getUserData().companyId &&
+          request.resource.data.companyId == resource.data.companyId &&
+          hasCompanyOutsourcingPlan(getUserData().companyId)
+        )
+      );
+      allow delete: if canAccessTaggedBranch(resource.data) || (
+        isSignedIn() &&
+        getUserData().role == 'COMPANY' &&
+        getUserData().companyId != null &&
+        resource.data.companyId != null &&
+        resource.data.companyId == getUserData().companyId &&
+        hasCompanyOutsourcingPlan(getUserData().companyId)
+      );
+    }
+
+    // Overtime Sync Metadata Collection
+    // Tracks overtimeSourceUpdatedAt and overtimeImportedAt per companyId and belongingYearMonth.
+    // Protection:
+    // - WORKER: Completely DENIED (no read, no write)
+    // - COMPANY: Can read their own company metadata and record overtimeSourceUpdatedAt on CRUD (only with ACTIVE OUTSOURCING plan);
+    //            STRICTLY FORBIDDEN from tampering with overtimeImportedAt to fake sync and bypass desync warning
+    // - ADMIN: Full management (sync execution, payroll re-import, rule management)
+    match /overtime_sync_meta/{syncId} {
+      allow get, list: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          resource.data.companyId != null &&
+          resource.data.companyId == getUserData().companyId &&
+          hasCompanyOutsourcingPlan(getUserData().companyId)
+        )
+      );
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          request.resource.data.companyId != null &&
+          request.resource.data.companyId == getUserData().companyId &&
+          hasCompanyOutsourcingPlan(getUserData().companyId) &&
+          request.resource.data.get('sourceVersion', -1) == 1 &&
+          request.resource.data.get('belongingYearMonth', '') is string &&
+          request.resource.data.get('id', '') == syncId &&
+          request.resource.data.keys().hasOnly(['id', 'companyId', 'belongingYearMonth', 'sourceVersion', 'overtimeSourceUpdatedAt', 'lastAction', 'updatedById', 'updatedAt', 'overtimeImportedAt']) &&
+          request.resource.data.get('overtimeImportedAt', null) == null
+        )
+      );
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (
+          getUserData().role == 'COMPANY' &&
+          getUserData().companyId != null &&
+          resource.data.companyId != null &&
+          resource.data.companyId == getUserData().companyId &&
+          request.resource.data.companyId == resource.data.companyId &&
+          request.resource.data.get('belongingYearMonth', '') == resource.data.get('belongingYearMonth', '') &&
+          request.resource.data.get('sourceVersion', -1) == resource.data.get('sourceVersion', 0) + 1 &&
+          request.resource.data.get('id', '') == syncId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sourceVersion', 'overtimeSourceUpdatedAt', 'lastAction', 'updatedById', 'updatedAt']) &&
+          hasCompanyOutsourcingPlan(getUserData().companyId) &&
+          request.resource.data.get('overtimeImportedAt', null) == resource.data.get('overtimeImportedAt', null)
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Phase 17: admin branch scope + owner/tenant identity immutability.
+    match /ai_consultations/{consultationId} {
+      allow get, list: if isSignedIn() && (
+        adminCanAccessOptionalCompany(resource.data) ||
+        resource.data.get('userId', '') == request.auth.uid ||
+        (getUserData().get('role', '') == 'COMPANY' &&
+         getUserData().get('companyId', '') != '' &&
+         resource.data.get('companyId', '') == getUserData().get('companyId', ''))
+      );
+      allow create: if isSignedIn() && (
+        adminCanAccessOptionalCompany(request.resource.data) ||
+        (request.resource.data.get('userId', '') == request.auth.uid &&
+         (request.resource.data.get('companyId', '') == '' ||
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', '')))
+      );
+      allow update: if isSignedIn() &&
+        request.resource.data.get('userId', '') == resource.data.get('userId', '') &&
+        request.resource.data.get('companyId', '') == resource.data.get('companyId', '') &&
+        taggedBranchUnchanged() && (
+          adminCanAccessOptionalCompany(resource.data) ||
+          resource.data.get('userId', '') == request.auth.uid
+        );
+      allow delete: if adminCanAccessOptionalCompany(resource.data);
+    }
+
+    // Phase 17: clients cannot impersonate a different audit actor.
+    // Existing legacy audit rows without branchId retain admin visibility until migration.
+    match /audit_logs/{logId} {
+      allow get, list: if adminCanAccessOptionalCompany(resource.data);
+      allow create: if isSignedIn() &&
+        request.resource.data.get('actorUserId', '') == request.auth.uid &&
+        request.resource.data.get('actorRole', '') == getUserData().get('role', '') &&
+        (adminCanAccessOptionalCompany(request.resource.data) ||
+         (!isAdmin() && (request.resource.data.get('companyId', '') == '' ||
+          request.resource.data.get('companyId', '') == getUserData().get('companyId', ''))));
+      allow update, delete: if false;
+    }
+
+    // Firm Info (Public metadata / branding / reservation URL)
+    match /firm_info/{infoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // [R2-8 2/4-C-③] Subscription Requests Collection
+    // - COMPANY: 자기 회사 신청 create / read 만 허용 (update, delete 금지)
+    // - ADMIN: 전체 read 및 status 관리 허용 (create, update 허용)
+    // - WORKER: 일체 접근 금지
+    match /subscription_requests/{requestId} {
+      allow get, list: if isSignedIn() && (
+        adminCanAccessCompany(resource.data.get('companyId', '')) || (
+          getUserData().get('role', '') == 'COMPANY' &&
+          getUserData().get('companyId', '') != '' &&
+          resource.data.get('companyId', '') == getUserData().get('companyId', '')
+        )
+      );
+
+      // Online/self-service plan requests were retired. Preserve historical reads only.
+      // Plan assignment must use the existing admin-controlled company subscription flow.
+      allow create, update, delete: if false;
+    }
+  }
+}

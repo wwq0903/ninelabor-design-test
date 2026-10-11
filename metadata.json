@@ -1,0 +1,8 @@
+{
+  "name": "무법인 나인",
+  "description": "노무법인 나인 기업용 통합 노무관리 시스템 - 기업, 근로자, 담당 노무사, 최고관리자를 위한 올인원 B2B 노무",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

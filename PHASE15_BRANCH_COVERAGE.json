@@ -1,0 +1,243 @@
+{
+  "summary": {
+    "collections_scanned": 34,
+    "collections_with_branch_guard_reference": 8,
+    "collections_without_branch_guard_reference": [
+      "users",
+      "admins",
+      "tasks",
+      "task_source_locks",
+      "company_directory",
+      "worker_sensitive_data",
+      "maternity_cases",
+      "maternity_case_private",
+      "maternity_documents",
+      "maternity_document_private",
+      "maternity_deductions",
+      "inquiries",
+      "inquiry_files",
+      "inquiry_history",
+      "consents",
+      "message_templates",
+      "message_reads",
+      "message_files",
+      "data_requests",
+      "company_documents",
+      "notifications",
+      "overtime_sync_meta",
+      "ai_consultations",
+      "audit_logs",
+      "firm_info",
+      "subscription_requests"
+    ],
+    "legacy_untagged_admin_access_allowed": true,
+    "emulator_executed": false,
+    "full_build_executed": false
+  },
+  "collections": [
+    {
+      "collection": "users",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 49
+    },
+    {
+      "collection": "admins",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 14
+    },
+    {
+      "collection": "companies",
+      "branch_guard_reference": true,
+      "admin_check_reference": true,
+      "rules_lines": 99
+    },
+    {
+      "collection": "company_contacts",
+      "branch_guard_reference": true,
+      "admin_check_reference": false,
+      "rules_lines": 12
+    },
+    {
+      "collection": "internal_notes",
+      "branch_guard_reference": true,
+      "admin_check_reference": false,
+      "rules_lines": 72
+    },
+    {
+      "collection": "tasks",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 40
+    },
+    {
+      "collection": "task_source_locks",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 21
+    },
+    {
+      "collection": "company_directory",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 30
+    },
+    {
+      "collection": "workers",
+      "branch_guard_reference": true,
+      "admin_check_reference": false,
+      "rules_lines": 57
+    },
+    {
+      "collection": "worker_sensitive_data",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 11
+    },
+    {
+      "collection": "maternity_cases",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 53
+    },
+    {
+      "collection": "maternity_case_private",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 11
+    },
+    {
+      "collection": "maternity_documents",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 54
+    },
+    {
+      "collection": "maternity_document_private",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 10
+    },
+    {
+      "collection": "maternity_deductions",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 15
+    },
+    {
+      "collection": "inquiries",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 129
+    },
+    {
+      "collection": "inquiry_files",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 75
+    },
+    {
+      "collection": "inquiry_history",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 82
+    },
+    {
+      "collection": "consents",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 21
+    },
+    {
+      "collection": "messages",
+      "branch_guard_reference": true,
+      "admin_check_reference": false,
+      "rules_lines": 40
+    },
+    {
+      "collection": "message_templates",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 52
+    },
+    {
+      "collection": "message_reads",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 56
+    },
+    {
+      "collection": "message_files",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 74
+    },
+    {
+      "collection": "data_requests",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 36
+    },
+    {
+      "collection": "company_documents",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 57
+    },
+    {
+      "collection": "documents",
+      "branch_guard_reference": true,
+      "admin_check_reference": false,
+      "rules_lines": 26
+    },
+    {
+      "collection": "notifications",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 12
+    },
+    {
+      "collection": "payrolls",
+      "branch_guard_reference": true,
+      "admin_check_reference": false,
+      "rules_lines": 53
+    },
+    {
+      "collection": "overtime_records",
+      "branch_guard_reference": true,
+      "admin_check_reference": false,
+      "rules_lines": 57
+    },
+    {
+      "collection": "overtime_sync_meta",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 38
+    },
+    {
+      "collection": "ai_consultations",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 18
+    },
+    {
+      "collection": "audit_logs",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 7
+    },
+    {
+      "collection": "firm_info",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 9
+    },
+    {
+      "collection": "subscription_requests",
+      "branch_guard_reference": false,
+      "admin_check_reference": true,
+      "rules_lines": 28
+    }
+  ]
+}

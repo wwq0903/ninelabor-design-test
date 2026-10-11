@@ -1,0 +1,6 @@
+
+> react-example@0.0.0 check:imports
+> node scripts/check-local-imports.cjs
+
+Checked 94 source files and 408 local imports.
+All statically detected local imports resolved.

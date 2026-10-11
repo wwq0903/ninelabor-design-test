@@ -1,0 +1,6 @@
+
+> react-example@0.0.0 verify:build
+> node scripts/verify-build.cjs
+
+BUILD BLOCKED: Missing dependencies: typescript, vite, @vitejs/plugin-react, @tailwindcss/vite
+Run "npm install" in a network-enabled environment, then "npm run verify:build".

@@ -1,0 +1,7 @@
+
+> react-example@0.0.0 lint
+> tsc --noEmit
+
+error TS2688: Cannot find type definition file for 'vite/client'.
+  The file is in the program because:
+    Entry point of type library 'vite/client' specified in compilerOptions

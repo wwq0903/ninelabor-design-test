@@ -1,0 +1,316 @@
+check:security:offline EXIT 0
+
+> react-example@0.0.0 check:security:offline
+> node scripts/run-offline-security-checks.cjs
+
+PASS 지부 권한 정책
+PASS 6차 API 연결 정적 검사
+PASS 7차 데이터 검증
+PASS 8차 데이터 검증
+PASS 9차 Firestore 규칙 정적 검사
+PASS 10차 지부 규칙 정적 검사
+PASS 급여 보안 정적 검사
+PASS 관리자 목록 보안 정적 검사
+PASS 근로자·기업 격리 정적 검사
+
+결과: 9/9개 검사 스크립트 통과
+주의: 정적/오프라인 검사만 수행. Firebase Emulator, 전체 빌드 및 실서비스 보안 검증을 대체하지 않음.
+
+
+check:imports EXIT 0
+
+> react-example@0.0.0 check:imports
+> node scripts/check-local-imports.cjs
+
+Checked 99 source files and 414 local imports.
+All statically detected local imports resolved.
+
+
+check:branch:phase17 EXIT 0
+
+> react-example@0.0.0 check:branch:phase17
+> node scripts/test-phase17-branch.cjs
+
+PASS: phase17 admin company scope, AI owner immutability, audit actor validation, subscription branch scope (static only)
+
+
+audit:branch:coverage EXIT 0
+
+    },
+    {
+      "collection": "ai_consultations",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "audit_logs",
+      "branchScopeReference": true,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "firm_info",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "subscription_requests",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    }
+  ]
+}
+
+
+check:security:phase18 EXIT 0
+
+> react-example@0.0.0 check:security:phase18
+> node scripts/test-phase18-security.cjs
+
+PASS phase18 security structural checks (not emulator validation)
+
+
+check:security:phase19 EXIT 0
+
+> react-example@0.0.0 check:security:phase19
+> node scripts/test-phase19-onboarding.cjs
+
+PASS phase19 signup/approval structural checks (NOT emulator or UI runtime verification)
+
+
+check:offline-only EXIT 0
+
+> react-example@0.0.0 check:offline-only
+> node scripts/test-phase21-offline-only.cjs
+
+PASS: offline-only plan flow, legacy request writes disabled, policy/dashboard consistency
+
+
+check:syntax EXIT 0
+
+> react-example@0.0.0 check:syntax
+> node scripts/check-typescript-syntax.cjs
+
+Parsed 124 JS/TS/TSX files; syntax errors: 0. Compiler: 5.8.3
+
+
+check:security:phase22 EXIT 0
+
+> react-example@0.0.0 check:security:phase22
+> node scripts/test-phase22-hardening.cjs
+
+PASS: company privilege allowlist, retired plan writes, strict dates, exclusive expiry boundary
+
+
+check:security:phase23 EXIT 0
+
+> react-example@0.0.0 check:security:phase23
+> node scripts/test-phase23-integration.cjs
+
+PASS: notification privacy, branch-scoped recipient, immutable read status, trusted audit UID, service/UI date validation
+
+
+check:plan-dates EXIT 0
+
+> react-example@0.0.0 check:plan-dates
+> node --experimental-strip-types scripts/test-phase23-plan-dates.mjs
+
+PASS: 14 real date boundary and range assertions
+(node:12859) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+check:migration:phase24 EXIT 0
+
+> react-example@0.0.0 check:migration:phase24
+> node scripts/test-phase24-migration.cjs
+
+PASS valid sanitized fixture
+PASS missing collection
+PASS missing worker branch
+PASS wrong worker branch
+PASS unknown company
+PASS cross branch assignment
+PASS duplicate assignment
+PASS invalid assignments
+PASS duplicate worker id
+PASS invalid record
+PASS admin user missing branch
+PASS invalid company branch
+PASS invalid company ID
+PASS invalid export
+14/14 migration readiness checks passed
+
+
+check:security:phase25 EXIT 0
+
+> react-example@0.0.0 check:security:phase25
+> node scripts/test-phase25-api-security.cjs
+
+PASS 12 API, RRN and branch-enforcement security invariants (static checks only)
+
+
+check:security:phase26 EXIT 0
+
+> react-example@0.0.0 check:security:phase26
+> node scripts/test-phase26-rrn-authorization.cjs
+
+PASS 26차 RRN API 권한 불변식 (정적 검사)
+
+
+check:security:phase27 EXIT 0
+
+> react-example@0.0.0 check:security:phase27
+> node scripts/test-phase27-tenant-authorization.cjs
+
+PASS 27차 관리자 이중 인증, 지부별 기업 권한, 회원 생성 사전검증/보상, 서버 오류 정보 비노출 (정적 검사)
+
+
+check:security:phase28 EXIT 0
+
+> react-example@0.0.0 check:security:phase28
+> node scripts/test-phase28-tenant-integrity.cjs
+
+PASS phase28 tenant creation, approval, directory isolation, audit actor role (static assertions only)
+
+
+check:security:phase29 EXIT 0
+
+> react-example@0.0.0 check:security:phase29
+> node --experimental-strip-types scripts/test-phase29-hardening.mjs
+
+PASS 29차: 중첩 개인정보 삭제, 입력 제한, 프로필 RRN 보호, 감사로그 사용자 일치, 오류정보 축소, ID 충돌 완화
+(node:12977) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+check:http:phase30 EXIT 0
+
+> react-example@0.0.0 check:http:phase30
+> node scripts/test-phase30-http.cjs
+
+PASS API security headers
+PASS Limiter allows configured number and then returns 429
+PASS Limiter isolates distinct IPs
+PASS Limiter rejects invalid configuration
+PASS Unknown API is JSON 404
+PASS Oversized JSON is sanitized 413
+PASS Malformed JSON is sanitized 400
+PASS Unknown error does not leak details
+HTTP protection runtime checks: 8/8 passed
+Unhandled API error { status: 500 }
+
+
+check:phase31 EXIT 0
+le@0.0.0 check:phase31
+> node scripts/test-phase31-runtime.cjs
+
+PASS KST boundary from UTC 15:00
+PASS KST day before UTC 15:00
+PASS invalid reference date rejects
+PASS inclusive end date
+PASS expired following day
+PASS corrupt end date fails closed
+PASS reversed range fails closed
+PASS valid leap day
+PASS invalid leap day rejected
+PASS production refuses missing dist
+PASS readiness checks service configuration
+PASS branch auth has no development bypass
+Phase31 runtime/static checks 12/12 passed
+
+
+check:phase32 EXIT 0
+
+> react-example@0.0.0 check:phase32
+> node scripts/test-phase32-server-safety.cjs
+
+PASS API route handles absent JSON body
+PASS AI errors do not log upstream exception object
+PASS Startup errors do not dump environment exceptions
+PASS API error handler installed
+PASS Production requires compiled index
+PASS CI checks TypeScript
+PASS CI checks Vite build
+PASS CI checks build output
+PASS CI checks server safety regression
+9/9 server-safety regression assertions passed
+
+
+check:phase33 EXIT 0
+er record atomic
+PASS audit record atomic
+PASS batch committed before reset email
+PASS no sequential company write
+PASS no sequential user write
+PASS no audit PII
+PASS no raw exception logging
+PASS failure injection restricted to tests
+PASS request body null-safe
+PASS privileged admin creation limited
+PASS sensitive RRN reads limited
+PASS maternity transitions limited and gated
+PASS maternity assignment limited and gated
+18/18 phase33 source invariants passed (not runtime Firebase verification)
+
+
+check:phase34 EXIT 0
+
+> react-example@0.0.0 check:phase34
+> node scripts/test-phase34-rate-limit.cjs
+
+PASS Reject invalid capacity
+PASS Active IP cannot reset quota by filling capacity
+PASS Expired buckets are reclaimed
+PASS Forwarded IP spoofing cannot bypass socket quota
+PASS Retry-After returned on capacity denial
+Phase 34 HTTP limiter runtime tests: 5/5 passed
+
+
+check:phase35 EXIT 0
+
+> react-example@0.0.0 check:phase35
+> node scripts/test-phase35-runtime.cjs
+
+PASS phase35: 9 encryption integrity and Firebase project isolation assertions
+
+
+check:phase36 EXIT 0
+
+> react-example@0.0.0 check:phase36
+> node --experimental-strip-types scripts/test-phase36-maternity-guard.mjs
+
+Phase 36 maternity guard: 15/15 passed
+(node:13140) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+
+check:phase37 EXIT 0
+
+> react-example@0.0.0 check:phase37
+> node scripts/test-phase37-request-guards.cjs
+
+PASS phase37: 18 executable input and branch-gate assertions
+
+
+check:phase38 EXIT 0
+
+> react-example@0.0.0 check:phase38
+> node scripts/test-phase38-account-consistency.cjs
+
+PASS phase38: 14 source and executable account consistency assertions
+
+
+check:phase39-44 EXIT 0
+ checked
+PASS Graceful SIGTERM and SIGINT shutdown
+PASS Shutdown timeout is bounded
+PASS AI upstream failure is a gateway error
+PASS Browser does not log AI error objects
+PASS Deployment gate exposed
+PASS Inventory exposed
+PASS Release config avoids secret value printing
+PASS CI invokes regression suite
+PASS CI does not suppress native dependency install scripts
+PASS release gate rejects incomplete deployment
+PASS inventory does not fabricate completion percentage
+13/13 phase39-44 checks passed

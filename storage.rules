@@ -1,0 +1,317 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Role and company ID lookup from Firestore users collection
+    function getUserData() {
+      return firestore.get(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Role ADMIN is verified based on admins/{uid} document or users/{uid}.role == 'ADMIN'
+    function isAdmin() {
+      return isSignedIn() && (
+        firestore.exists(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/admins/$(request.auth.uid)) ||
+        (getUserData().role == 'ADMIN')
+      );
+    }
+
+    // Helper: check if target company exists
+    function companyExists(companyId) {
+      return firestore.exists(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/companies/$(companyId));
+    }
+
+    // Verified COMPANY role with matching companyId
+    function isCompany(targetCompanyId) {
+      return isSignedIn() &&
+        getUserData().role == 'COMPANY' &&
+        getUserData().companyId != null &&
+        getUserData().companyId == targetCompanyId;
+    }
+
+    // Verified Individual WORKER (not affiliated with any company)
+    function isIndividualWorker() {
+      return isSignedIn() &&
+        getUserData().role == 'WORKER' &&
+        getUserData().membershipType == 'INDIVIDUAL' &&
+        (!('companyId' in getUserData()) || getUserData().companyId == null || getUserData().companyId == '');
+    }
+
+    // Helper: lookup inquiry document in Firestore
+    function inquiryExists(inquiryId) {
+      return firestore.exists(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/inquiries/$(inquiryId));
+    }
+
+    function getInquiry(inquiryId) {
+      return firestore.get(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/inquiries/$(inquiryId)).data;
+    }
+
+    // File validation: max 20MB, min 1 byte, blocked dangerous executable types
+    function isValidInquiryFile() {
+      return request.resource.size > 0 &&
+        request.resource.size <= 20 * 1024 * 1024 &&
+        !request.resource.contentType.matches('application/x-msdownload|application/x-executable|application/x-sh|application/x-bat|application/x-dosexec');
+    }
+
+    // 1. 기업 문의 첨부파일 Storage 경로
+    // Pattern: inquiries/{companyId}/{inquiryId}/{fileId}/{fileName}
+    match /inquiries/{companyId}/{inquiryId}/{fileId}/{fileName} {
+      // Read:
+      // - ADMIN: 전체 기업 문의 파일 열람 가능
+      // - COMPANY: 본인 회사 경로 && 실제 inquiries 문서가 존재하고 companyId가 일치해야 함
+      // - WORKER 및 비로그인: 차단
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          inquiryExists(inquiryId) &&
+          getInquiry(inquiryId).companyId == companyId
+        )
+      );
+
+      // Create (Upload):
+      // - 파일 유효성(크기 <= 20MB, 비실행형 파일) 검증
+      // - ADMIN 또는 본인 소속 기업 일치 검증 && 실제 inquiries 문서 존재 및 companyId 일치 검증
+      allow create: if isSignedIn() && isValidInquiryFile() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          inquiryExists(inquiryId) &&
+          getInquiry(inquiryId).companyId == companyId
+        )
+      );
+
+      allow update: if false;
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          inquiryExists(inquiryId) &&
+          getInquiry(inquiryId).companyId == companyId &&
+          (
+            resource.metadata['uploadedById'] == request.auth.uid ||
+            (firestore.exists(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/inquiry_files/$(fileId)) &&
+             firestore.get(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/inquiry_files/$(fileId)).data.uploadedById == request.auth.uid)
+          )
+        )
+      );
+    }
+
+    // 2. 비소속 개인 근로자 문의 첨부파일 Storage 경로
+    // Pattern: inquiries/individual/{requesterId}/{inquiryId}/{fileId}/{fileName}
+    match /inquiries/individual/{requesterId}/{inquiryId}/{fileId}/{fileName} {
+      // Read:
+      // - ADMIN: 전체 열람 가능
+      // - 비소속 개인 WORKER: requesterId == auth.uid && 실제 inquiries 문서 존재 및 작성자 일치 검증
+      // - 회사 소속 WORKER 및 비로그인: 차단
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isIndividualWorker() &&
+          requesterId == request.auth.uid &&
+          inquiryExists(inquiryId) &&
+          (
+            getInquiry(inquiryId).requesterId == request.auth.uid ||
+            getInquiry(inquiryId).authorId == request.auth.uid
+          )
+        )
+      );
+
+      // Create (Upload):
+      // - 파일 유효성(크기 <= 20MB, 비실행형 파일) 검증
+      // - ADMIN 또는 본인(requesterId == auth.uid) 검증 && 실제 inquiries 문서 존재 및 작성자 일치 검증
+      allow create: if isSignedIn() && isValidInquiryFile() && (
+        isAdmin() ||
+        (
+          isIndividualWorker() &&
+          requesterId == request.auth.uid &&
+          inquiryExists(inquiryId) &&
+          (
+            getInquiry(inquiryId).requesterId == request.auth.uid ||
+            getInquiry(inquiryId).authorId == request.auth.uid
+          )
+        )
+      );
+
+      allow update: if false;
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isIndividualWorker() &&
+          requesterId == request.auth.uid &&
+          inquiryExists(inquiryId) &&
+          (
+            getInquiry(inquiryId).requesterId == request.auth.uid ||
+            getInquiry(inquiryId).authorId == request.auth.uid
+          ) &&
+          (
+            resource.metadata['uploadedById'] == request.auth.uid ||
+            (firestore.exists(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/inquiry_files/$(fileId)) &&
+             firestore.get(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/inquiry_files/$(fileId)).data.uploadedById == request.auth.uid)
+          )
+        )
+      );
+    }
+
+    // Data Requests Storage Path
+    // Pattern: data-requests/{companyId}/{dataRequestId}/{fileId}/{fileName}
+    match /data-requests/{companyId}/{dataRequestId}/{fileId}/{fileName} {
+      // 1. Read:
+      // - ADMIN can read files for all companies
+      // - COMPANY can read ONLY files strictly under their own companyId
+      // - WORKER is denied (no read permission)
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        isCompany(companyId)
+      );
+
+      // 2. Upload / Create:
+      // - ADMIN can upload
+      // - COMPANY can upload ONLY to their own companyId path
+      // - Strict file validation: max 20MB, min 1 byte, non-executable content types
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          request.resource.size > 0 &&
+          request.resource.size <= 20 * 1024 * 1024 &&
+          !request.resource.contentType.matches('application/x-msdownload|application/x-executable|application/x-sh|application/x-bat|application/x-dosexec')
+        )
+      );
+
+      // 3. Delete:
+      // - ADMIN can delete any file
+      // - COMPANY can delete ONLY within their own companyId AND only before final submission (status REQUESTED or REVISION_REQUESTED)
+      // - Once SUBMITTED, UNDER_REVIEW, or COMPLETED, COMPANY cannot delete files
+      // - Cross-company deletion is strictly blocked
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          firestore.get(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/data_requests/$(dataRequestId)).data.status in ['REQUESTED', 'REVISION_REQUESTED']
+        )
+      );
+
+      // 4. Update:
+      // Disallow direct modification/overwriting of stored binary file
+      allow update: if false;
+    }
+
+    // Message Files Storage Path (R2-6 1/3-C-② 메시지 첨부파일)
+    // Pattern: messages/{companyId}/{messageId}/{fileId}/{fileName}
+    match /messages/{companyId}/{messageId}/{fileId}/{fileName} {
+      // 1. Read:
+      // - ADMIN can read files for all companies
+      // - COMPANY can read ONLY files strictly under their own companyId
+      // - WORKER is denied (no read permission)
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        isCompany(companyId)
+      );
+
+      // 2. Upload / Create:
+      // - ADMIN can upload
+      // - COMPANY can upload ONLY to their own companyId path
+      // - Strict file validation: max 20MB, min 1 byte, non-executable content types
+      allow create: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          request.resource.size > 0 &&
+          request.resource.size <= 20 * 1024 * 1024 &&
+          !request.resource.contentType.matches('application/x-msdownload|application/x-executable|application/x-sh|application/x-bat|application/x-dosexec')
+        )
+      );
+
+      // 3. Update / Delete:
+      allow update: if false;
+
+      // [R2-6 1/3-C-③] 메시지 첨부파일 Storage 삭제 규칙:
+      // - ADMIN: 전체 파일 삭제 허용
+      // - COMPANY: 본인 회사 + 본인이 직접 업로드한 파일만 삭제 허용
+      //   (Storage customMetadata['uploadedById'] 검증 및 Firestore message_files 문서 교차 확인)
+      // - WORKER / 비로그인: 전면 차단
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          (
+            (resource.metadata != null && resource.metadata['uploadedById'] == request.auth.uid) ||
+            (
+              firestore.exists(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/message_files/$(fileId)) &&
+              firestore.get(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/message_files/$(fileId)).data.uploadedById == request.auth.uid &&
+              firestore.get(/databases/ai-studio-r-bbe203e2-69b0-4369-89f4-98cd5f1098ff/documents/message_files/$(fileId)).data.companyId == companyId
+            )
+          )
+        )
+      );
+    }
+
+    // Company Documents Storage Path (R2-7 1/3-B 기업 문서 등록 및 R2-7 1/3-C-② 다운로드)
+    // Pattern: company-documents/{companyId}/{documentId}/{fileName}
+    match /company-documents/{companyId}/{documentId}/{fileName} {
+      // 1. Read (다운로드 및 열람):
+      // - ADMIN: 전체 기업 문서 다운로드/열람 가능 (ALLOW)
+      // - COMPANY: 본인 회사 경로(companyId == getUserData().companyId)만 다운로드/열람 가능 (ALLOW)
+      // - WORKER 및 비로그인: 전면 차단 (DENY)
+      allow read: if isSignedIn() && (
+        isAdmin() ||
+        isCompany(companyId)
+      );
+
+      // 2. Upload / Create:
+      // - 파일 유효성: 크기 0 초과 ~ 20MB 이하
+      // - 위험 실행형 파일 차단 (exe, sh, bat, msdownload 등)
+      // - customMetadata 필수 검증:
+      //   * customMetadata.companyId == 경로 companyId
+      //   * customMetadata.documentId == 경로 documentId
+      //   * customMetadata.uploadedById == request.auth.uid
+      // - ADMIN: 실제 허용된 기업 경로(Firestore companies/{companyId} 존재)에 업로드 가능
+      // - COMPANY: 자기 companyId 경로에만 업로드 가능 (isCompany(companyId))
+      // - WORKER 및 비로그인: 전면 차단 (DENY)
+      allow create: if isSignedIn() &&
+        request.resource.size > 0 &&
+        request.resource.size <= 20 * 1024 * 1024 &&
+        !request.resource.contentType.matches('application/x-msdownload|application/x-executable|application/x-sh|application/x-bat|application/x-dosexec') &&
+        request.resource.metadata != null &&
+        'companyId' in request.resource.metadata &&
+        request.resource.metadata['companyId'] == companyId &&
+        'documentId' in request.resource.metadata &&
+        request.resource.metadata['documentId'] == documentId &&
+        'uploadedById' in request.resource.metadata &&
+        request.resource.metadata['uploadedById'] == request.auth.uid &&
+        (
+          (isAdmin() && companyExists(companyId)) ||
+          isCompany(companyId)
+        );
+
+      // 3. 파일 교체 방지 (Update):
+      // - 기존 Storage 객체를 덮어쓰는 update는 완전 차단 (DENY 유지)
+      allow update: if false;
+
+      // 4. Delete (R2-7 1/3-C-① Rollback 및 R2-7 1/3-C-③ 기업 문서 삭제):
+      // - ADMIN: 전체 기업 문서 Storage 파일 삭제 허용 (ALLOW)
+      // - COMPANY: 본인 회사 경로 && 본인이 직접 업로드한 파일만 삭제 허용
+      //   (resource.metadata.uploadedById == request.auth.uid)
+      // - 다른 COMPANY 사용자가 올린 파일, ADMIN이 올린 파일, 타사 파일: 차단 (DENY)
+      // - WORKER 및 비로그인: 전면 차단 (DENY)
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        (
+          isCompany(companyId) &&
+          resource.metadata != null &&
+          'uploadedById' in resource.metadata &&
+          resource.metadata['uploadedById'] == request.auth.uid
+        )
+      );
+    }
+
+    // Default catch-all: deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,201 @@
+
+> react-example@0.0.0 audit:branch:coverage
+> node scripts/audit-branch-coverage.cjs
+
+{
+  "summary": {
+    "total": 34,
+    "branchScopeReferenced": 18,
+    "unscoped": [
+      "users",
+      "admins",
+      "tasks",
+      "task_source_locks",
+      "company_directory",
+      "worker_sensitive_data",
+      "inquiries",
+      "inquiry_files",
+      "inquiry_history",
+      "consents",
+      "message_templates",
+      "message_reads",
+      "message_files",
+      "notifications",
+      "overtime_sync_meta",
+      "firm_info"
+    ],
+    "note": "Static inventory only. Indirect helper calls and cross-collection data relationships require emulator testing."
+  },
+  "collections": [
+    {
+      "collection": "users",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "admins",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "companies",
+      "branchScopeReference": true,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "company_contacts",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "internal_notes",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "tasks",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "task_source_locks",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "company_directory",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "workers",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "worker_sensitive_data",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "maternity_cases",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "maternity_case_private",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "maternity_documents",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "maternity_document_private",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "maternity_deductions",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "inquiries",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "inquiry_files",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "inquiry_history",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "consents",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "messages",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "message_templates",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "message_reads",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "message_files",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "data_requests",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "company_documents",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "documents",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "notifications",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "payrolls",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "overtime_records",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "overtime_sync_meta",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "ai_consultations",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    },
+    {
+      "collection": "audit_logs",
+      "branchScopeReference": true,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "firm_info",
+      "branchScopeReference": false,
+      "legacyAdminFallback": true
+    },
+    {
+      "collection": "subscription_requests",
+      "branchScopeReference": true,
+      "legacyAdminFallback": false
+    }
+  ]
+}

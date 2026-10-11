@@ -1,0 +1,50 @@
+# 디자인 이전 통합 검사 결과
+
+- PASS `check:security:offline` — 주의: 정적/오프라인 검사만 수행. Firebase Emulator, 전체 빌드 및 실서비스 보안 검증을 대체하지 않음.
+- PASS `check:imports` — All statically detected local imports resolved.
+- PASS `check:branch:phase17` — PASS: phase17 admin company scope, AI owner immutability, audit actor validation, subscription branch scope (static only)
+- PASS `check:security:phase18` — PASS phase18 security structural checks (not emulator validation)
+- PASS `check:security:phase19` — PASS phase19 signup/approval structural checks (NOT emulator or UI runtime verification)
+- PASS `check:offline-only` — PASS: offline-only plan flow, legacy request writes disabled, policy/dashboard consistency
+- PASS `check:syntax` — Parsed 125 JS/TS/TSX files; syntax errors: 0. Compiler: 5.8.3
+- PASS `check:security:phase22` — PASS: company privilege allowlist, retired plan writes, strict dates, exclusive expiry boundary
+- PASS `check:security:phase23` — PASS: notification privacy, branch-scoped recipient, immutable read status, trusted audit UID, service/UI date validation
+- PASS `check:plan-dates` — (Use `node --trace-warnings ...` to show where the warning was created)
+- PASS `check:migration:phase24` — 14/14 migration readiness checks passed
+- PASS `check:security:phase25` — PASS 12 API, RRN and branch-enforcement security invariants (static checks only)
+- PASS `check:security:phase26` — PASS 26차 RRN API 권한 불변식 (정적 검사)
+- PASS `check:security:phase27` — PASS 27차 관리자 이중 인증, 지부별 기업 권한, 회원 생성 사전검증/보상, 서버 오류 정보 비노출 (정적 검사)
+- PASS `check:security:phase28` — PASS phase28 tenant creation, approval, directory isolation, audit actor role (static assertions only)
+- PASS `check:security:phase29` — (Use `node --trace-warnings ...` to show where the warning was created)
+- PASS `check:http:phase30` — Unhandled API error { status: 500 }
+- PASS `check:phase31` — Phase31 runtime/static checks 12/12 passed
+- PASS `check:phase32` — 9/9 server-safety regression assertions passed
+- PASS `check:phase33` — 18/18 phase33 source invariants passed (not runtime Firebase verification)
+- PASS `check:phase34` — Phase 34 HTTP limiter runtime tests: 5/5 passed
+- PASS `check:phase35` — PASS phase35: 9 encryption integrity and Firebase project isolation assertions
+- PASS `check:phase36` — (Use `node --trace-warnings ...` to show where the warning was created)
+- PASS `check:phase37` — PASS phase37: 18 executable input and branch-gate assertions
+- PASS `check:phase38` — PASS phase38: 14 source and executable account consistency assertions
+- PASS `check:phase39-44` — 13/13 phase39-44 checks passed
+- PASS `check:phase45-49` — Phase 45-49: 29/29 checks passed
+- PASS `check:phase50-54` — PASS payroll period is validated
+- PASS `check:phase55-60` — Phase55-60 compatibility checks 11/11 passed (structural; runtime covered by phase61-68)
+- PASS `check:phase61-68` — Phase61-68 concurrency mock checks: 17/17 passed
+- PASS `check:phase69-76` — Phase69-76 sync safety: 9/9 passed
+- PASS `check:phase77-84` — Phase77-84 atomic payroll tests: 12/12 passed
+- PASS `check:phase85-92` — Phase85-92 executable tests: 10/10 passed
+- PASS `check:phase93-100` — Phase93-100 executable payroll transitions: 16/16 passed
+- PASS `check:phase101-108` — Phase101-108 payroll rules structural checks: 12/12 passed (not emulator tests)
+- PASS `check:phase109-116` — 14/14 checks passed
+- PASS `check:phase117-124` — Phase117-124: 12/12 passed
+- PASS `check:phase125-132` — Phase125-132: 17/17 passed
+- PASS `check:phase133-140` — 11/11 structural checks passed; Firestore emulator not run.
+- PASS `check:phase141-148` — 15/15 tests passed
+- PASS `check:phase149-156` — 19/19 checks passed (helper behavioral tests + service structural tests; no Firebase emulator).
+- PASS `check:phase157-164` — 14 UI integration assertions; PASSED
+- PASS `check:predesign` — PASS pre-design readiness audit schema, API discovery and deployment gate (6 assertions)
+- PASS `check:deployment-contract` — 11/11 deployment contract checks passed
+- PASS `check:runtime-delivery` — 8/8 runtime delivery checks passed (static checks, not a running HTTP server)
+- PASS `check:production-artifact` — 9/9 production artifact checks passed (static, not Docker execution)
+
+총 46/46 통과. 정적·오프라인 검사이며 실환경 테스트가 아닙니다.
