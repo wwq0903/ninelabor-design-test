@@ -1,0 +1,15 @@
+const fs = require('node:fs');
+const assert = require('node:assert/strict');
+const read = p => fs.readFileSync(p,'utf8');
+const pricing=read('src/components/dashboard/pricing/PricingView.tsx');
+const sidebar=read('src/components/dashboard/admin/AdminSidebar.tsx');
+const admin=read('src/components/dashboard/AdminView.tsx');
+const subscriptions=read('src/components/dashboard/admin/AdminSubscriptionsView.tsx');
+assert(!pricing.includes('subscriptionRequestService'), 'Customer pricing must not submit plan requests');
+assert(!pricing.includes('checkout'), 'Customer pricing must not offer checkout');
+assert(pricing.includes('오프라인 결제'), 'Offline payment notice required');
+assert(!sidebar.includes("key: 'payments'"), 'Payment menu must be removed');
+assert(!admin.includes("activeKey === 'payments'"), 'Payment route must be removed');
+assert(subscriptions.includes("('companies')"), 'Admin must default to company plan assignment');
+assert(subscriptions.includes('updateCompanySubscription'), 'Manual admin assignment must remain');
+console.log('PASS offline-payment policy UI regression checks (7)');

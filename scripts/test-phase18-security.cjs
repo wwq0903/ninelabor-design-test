@@ -1,0 +1,21 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const rules = fs.readFileSync('firestore.rules','utf8');
+function section(name) {const a=rules.indexOf(`match /${name}/{`);assert(a>=0,name);const b=rules.indexOf('\n    match /',a+8);return rules.slice(a,b<0?undefined:b)}
+const users=section('users');
+assert.match(users,/request.resource.data.role != 'COMPANY'/);
+assert.match(users,/request.resource.data.companyId == null \|\| request.resource.data.companyId == ''/);
+const companies=section('companies');
+assert.match(companies, /affectedKeys\(\)\.hasOnly\(\[/);
+for (const key of ['companyName','contactEmail','contactPhone','address']) assert.ok(companies.includes(`'${key}'`),key);
+const allowed = companies.match(/affectedKeys\(\)\.hasOnly\(\[([\s\S]*?)\]\)/)?.[1] || '';
+for (const key of ['branchId','ownerId','representativeUserId','managerIds','billingInfo','subscription','currentPlanId','activeSubscriptionRequestId']) assert.ok(!allowed.includes(`'${key}'`), `protected field must not be editable: ${key}`);
+const docs=section('documents');
+assert.match(docs,/adminCanAccessOptionalCompany\(request.resource.data\)/);
+assert.match(docs,/getUserData\(\).membershipStatus == 'ACTIVE'/);
+assert.match(docs,/request.resource.data.companyId == getUserData\(\).companyId/);
+for (const key of ['companyId','employeeId','uploadedById']) assert.ok(docs.includes(`request.resource.data.get('${key}', null) == resource.data.get('${key}', null)`),key);
+const companyDocs=section('company_documents');
+assert.match(companyDocs,/adminCanAccessOptionalCompany\(resource.data\)/);
+assert.match(companyDocs,/adminCanAccessOptionalCompany\(request.resource.data\)/);
+console.log('PASS phase18 security structural checks (not emulator validation)');

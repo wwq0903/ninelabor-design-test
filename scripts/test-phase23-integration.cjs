@@ -1,0 +1,17 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const rules = fs.readFileSync('firestore.rules','utf8');
+const notifications = rules.split('match /notifications/{notificationId} {')[1].split('    // Payrolls Collection')[0];
+assert.match(rules,/function canSendNotificationTo\(recipientId\)/);
+assert.match(notifications,/resource\.data\.get\('userId', ''\) == request\.auth\.uid/);
+assert.match(notifications,/request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasOnly\(\['isRead'\]\)/);
+assert.match(notifications,/canSendNotificationTo\(request\.resource\.data\.get\('userId', ''\)\)/);
+assert.doesNotMatch(notifications,/\(isAdmin\(\) \|\| resource\.data/);
+const service=fs.readFileSync('src/services/firmService.ts','utf8');
+assert.match(service,/validatePlanDateRange\(subscription\.startDate\?\.trim\(\), subscription\.endDate\?\.trim\(\)\)/);
+assert.match(service,/if \(!actorUid\) throw new Error/);
+assert.doesNotMatch(service,/\|\| 'admin_user'/);
+const ui=fs.readFileSync('src/components/dashboard/admin/AdminSubscriptionsView.tsx','utf8');
+assert.match(ui,/isValidPlanDate\(cleanStart\)/);
+assert.match(ui,/isValidPlanDate\(cleanEnd\)/);
+console.log('PASS: notification privacy, branch-scoped recipient, immutable read status, trusted audit UID, service/UI date validation');

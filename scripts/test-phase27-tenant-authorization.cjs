@@ -1,0 +1,23 @@
+#!/usr/bin/env node
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const read = path => fs.readFileSync(path, 'utf8');
+const rules = read('firestore.rules');
+const service = read('src/server/adminUserService.ts');
+const server = read('server.ts');
+const admin = rules.split('function isAdmin() {')[1].split('function isCompanyManager')[0];
+for (const term of ["exists(/databases/$(database)/documents/admins/$(request.auth.uid))", "exists(/databases/$(database)/documents/users/$(request.auth.uid))", "== 'ADMIN'", "get('active', false) == true", "'SUSPENDED', 'DELETED'"]) assert.ok(admin.includes(term), `admin gate missing ${term}`);
+assert.ok(!admin.includes('||'), 'admin identity cannot use OR fallback');
+const companies = rules.split('match /companies/{companyId} {')[1].split('// Phase 9:')[0];
+for (const term of ['adminCanAccessCompany(companyId)', 'canAccessTaggedBranch(request.resource.data)', 'taggedBranchUnchanged()', 'adminBranchId()']) assert.ok(companies.includes(term), `company scope missing ${term}`);
+assert.ok(!companies.includes('allow list: if isAdmin();'));
+assert.ok(companies.includes("resource.data.get('branchId', '') == adminBranchId()"));
+const firm = read('src/services/firmService.ts');
+assert.ok(firm.includes("where('branchId', '==', branchId)"));
+assert.ok(firm.includes('getCurrentAdminBranchId()')); 
+const auth = service.split('async function verifyCallerIsAdmin(')[1].split('// Handler for POST')[0];
+for (const term of ['!adminDoc.exists', '!userDoc.exists', "user?.role !== 'ADMIN'", 'admin?.active !== true', 'admin?.branchId']) assert.ok(auth.includes(term), `create-user auth missing ${term}`);
+for (const term of ['verifyIdToken(idToken, true)', "error: 'COMPANY_BRANCH_ACCESS_DENIED'", "error: 'COMPANY_ID_NOT_ALLOWED'", 'writeBatch.create(adminDb.collection(\'companies\').doc(targetCompanyId), newCompanyData)', 'branchId: callerAdmin.branchId', 'createdWorkerId', 'createdCompanyId', 'crypto.randomUUID()', "process.env.NODE_ENV === 'test'"]) assert.ok(service.includes(term), `create-user flow missing ${term}`);
+assert.ok(!server.includes("message: err.message || '상태 전이"));
+assert.ok(server.includes("process.env.GEMINI_MODEL || 'gemini-2.5-flash'"));
+console.log('PASS 27차 관리자 이중 인증, 지부별 기업 권한, 회원 생성 사전검증/보상, 서버 오류 정보 비노출 (정적 검사)');

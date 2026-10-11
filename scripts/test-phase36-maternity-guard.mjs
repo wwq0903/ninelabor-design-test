@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { sanitizeMaternityCaseUpdates as clean, validDocumentId, validMaternityStatus } from '../src/server/maternityMutationGuard.ts';
+let count = 0;
+function test(fn) { fn(); count++; }
+test(() => assert(validDocumentId('company_1')));
+test(() => assert(!validDocumentId('x/y')));
+test(() => assert(!validDocumentId('')));
+test(() => assert(validMaternityStatus('COMPLETED')));
+test(() => assert(!validMaternityStatus('ADMIN')));
+test(() => assert.deepEqual(clean({ updatedById: 'attacker' }, 'admin'), {}));
+test(() => assert.throws(() => clean({ companyId: 'other' }, 'admin')));
+test(() => assert.throws(() => clean({ deductionInfo: { source: 'FREE' } }, 'admin')));
+test(() => assert.throws(() => clean({ branchId: 'other' }, 'admin')));
+test(() => assert.throws(() => clean({ status: 'COMPLETED' }, 'admin')));
+test(() => assert.throws(() => clean({ completedById: 'attacker' }, 'admin')));
+test(() => assert.equal(clean({ completedById: 'admin' }, 'admin').completedById, 'admin'));
+test(() => assert.throws(() => clean({ supplementRequest: {content:'x', requestedAt: new Date().toISOString(), requestedById:'attacker'} }, 'admin')));
+test(() => assert.equal(clean({ supplementRequest: {content:'x', requestedAt: new Date().toISOString(), requestedById:'admin'} }, 'admin').supplementRequest.content, 'x'));
+test(() => assert.throws(() => clean([], 'admin')));
+console.log(`Phase 36 maternity guard: ${count}/${count} passed`);

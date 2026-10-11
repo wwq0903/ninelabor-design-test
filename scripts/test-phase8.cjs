@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict');
+const {auditReadiness,COLLECTIONS}=require('./audit-branch-readiness.cjs');
+const base=()=>Object.fromEntries(COLLECTIONS.map(k=>[k,[]]));
+let n=0;
+const check=(name,mutate,code)=>{const d=base();d.companies.push({id:'c1',branchId:'jeonju'},{id:'c2',branchId:'gwangju'});mutate(d);const out=auditReadiness(d);assert.equal(out.issues.some(x=>x.code===code),true,name);n++};
+check('missing collection',d=>delete d.documents,'COLLECTION_NOT_EXPORTED');
+check('cross branch assignment',d=>d.admins.push({id:'admin1',branchId:'jeonju',assignedCompanyIds:['c2']}),'CROSS_BRANCH_ASSIGNMENT');
+check('unknown assignment',d=>d.admins.push({id:'admin1',branchId:'jeonju',assignedCompanyIds:['missing']}),'UNKNOWN_ASSIGNED_COMPANY');
+check('admin user missing branch',d=>d.users.push({id:'user1',role:'ADMIN'}),'ADMIN_USER_MISSING_BRANCH');
+check('company branch mismatch',d=>d.payrolls.push({id:'payroll1',companyId:'c1',branchId:'gwangju'}),'BRANCH_COMPANY_MISMATCH');
+check('duplicate company',d=>d.companies.push({id:'c1',branchId:'jeonju'}),'DUPLICATE_OR_MISSING_ID');
+const d=base();d.companies.push({id:'c1',branchId:'jeonju'});d.admins.push({id:'admin1',branchId:'jeonju',assignedCompanyIds:['c1']});assert.equal(auditReadiness(d).ready,true);n++;
+console.log(`PASS ${n} phase8 offline migration checks`);

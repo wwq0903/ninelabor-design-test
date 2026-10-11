@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module'),cp=require('node:child_process');
+const ts=require(require.resolve('typescript',{paths:[cp.execFileSync('npm',['root','-g'],{encoding:'utf8'}).trim()]}));
+const file=path.resolve(__dirname,'../src/services/payrollService.ts');
+const js=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+let docs=new Map(), fail=false, count=0, currentUid='admin', queries=[];
+const doc=(_db,col,id)=>{const collectionName=typeof col==='string'?col:_db.col;const name=typeof col==='string'?(id||'audit_test'):'audit_test';return {id:name,key:`${collectionName}/${name}`}};
+const snap=ref=>({exists:()=>docs.has(ref.key),data:()=>docs.get(ref.key)});
+const mock={doc,collection:(_db,col)=>({col}),where:(...args)=>args,query:(...args)=>{queries.push(args);return args},orderBy:()=>{},getDoc:async r=>snap(r),getDocs:async()=>({docs:[]}),runTransaction:async(_db,fn)=>{let pending=[];await fn({get:async r=>snap(r),set:(r,v,o)=>pending.push([r,v,o]),update:(r,v)=>pending.push([r,v,{merge:true}])});if(fail)throw Error('commit failed');for(const [r,v,o] of pending)docs.set(r.key,o?.merge?{...docs.get(r.key),...v}:v)}};
+const original=Module._load;Module._load=function(id,...args){if(id==='firebase/firestore')return mock;if(id==='../lib/firebase')return {db:{},auth:{get currentUser(){return currentUid?{uid:currentUid}:null}},handleFirestoreError:e=>{throw e},OperationType:{LIST:'LIST'}};if(id==='../utils/sanitizeAuditDetails')return {sanitizeAuditDetails:x=>x};if(id==='./overtimeService')return {overtimeService:{}};if(id==='./auditLogService')return {auditLogService:{logAction:()=>{throw Error('non-atomic audit attempted')}}};if(id==='../types')return {};return original.call(this,id,...args)};
+const m=new Module(file,module);m.filename=file;m.paths=module.paths;try{m._compile(js,file)}finally{Module._load=original};const svc=m.exports.payrollService;svc.getPayrollsByCompany=async()=>[];
+const analysis={companyId:'co',belongingYearMonth:'2026-10',aggregatedByWorker:{w:{overtimeHours:2,holidayWorkHours:0}},excludedRecords:[],totalOvertimeHours:2,totalHolidayHours:0,sourceVersion:1};
+docs.set('overtime_sync_meta/sync_co_202610',{sourceVersion:1});
+const worker={id:'w',name:'Worker',companyId:'co',hourlyWage:11000};const args={companyId:'co',belongingYearMonth:'2026-10',registeredWorkers:[worker],analysis,actorUserId:'admin',actorRole:'ADMIN',actorName:'Admin'};
+const check=(value,msg)=>{assert.ok(value,msg);count++};
+(async()=>{
+ await assert.rejects(()=>svc.importOvertimeToPayrolls({...args,actorRole:'COMPANY'}),/관리자만/);check(docs.size===1,'company rejected');
+ currentUid='other';await assert.rejects(()=>svc.importOvertimeToPayrolls(args),/일치하지/);check(docs.size===1,'uid mismatch rejected');currentUid='admin';
+ await assert.rejects(()=>svc.importOvertimeToPayrolls({...args,registeredWorkers:[{...worker,hourlyWage:0}]}),/시급 미확인/);check(docs.size===1,'missing wage rejected');
+ fail=true;await assert.rejects(()=>svc.importOvertimeToPayrolls(args),/commit failed/);check(docs.size===1,'atomic rollback includes audit');fail=false;
+ const result=await svc.importOvertimeToPayrolls(args);check(result.updatedWorkersCount===1,'one worker imported');check(docs.size===3,'payroll marker and audit');check(docs.has('audit_logs/audit_test'),'audit committed');check(docs.get('audit_logs/audit_test').actorUserId==='admin','audit actor');
+ await svc.getPayrollsForWorker('w','co');const q=queries.at(-1);check(q.some(x=>x[0]==='companyId'&&x[2]==='co'),'worker query company scoped');check(q.some(x=>x[0]==='status'),'worker query status scoped');
+ console.log(`Phase85-92 executable tests: ${count}/${count} passed`);
+})().catch(e=>{console.error(e);process.exitCode=1});

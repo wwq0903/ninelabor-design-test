@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const {audit}=require('./audit-branch-migration.cjs');
+const base={companies:[{id:'c1',branchId:'jeonju'},{id:'c2',branchId:'gwangju'}],admins:[{id:'a1',branchId:'jeonju'}],payrolls:[{companyId:'c1',branchId:'jeonju'}]};
+assert.equal(audit(base).ready,true);
+assert.equal(audit({...base,admins:[{id:'a1'}]}).ready,false);
+assert(audit({...base,payrolls:[{companyId:'c1',branchId:'gwangju'}]}).issues.some(x=>x.code==='BRANCH_COMPANY_MISMATCH'));
+assert(audit({...base,workers:[{companyId:'missing'}]}).issues.some(x=>x.code==='UNKNOWN_COMPANY'));
+const middleware=fs.readFileSync('src/server/branchAuthorization.ts','utf8');
+assert(middleware.includes("collection('maternity_cases').doc(caseId).get()"));
+assert(middleware.includes('maternityCase?.companyId !== companyId'));
+console.log('Phase 7: 6 checks passed (4 data scenarios, 2 authorization guards).');
