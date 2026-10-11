@@ -1,0 +1,47 @@
+# 157~164차 검사 결과
+
+- PASS `check:security:offline`
+- PASS `check:imports`
+- PASS `check:branch:phase17`
+- PASS `audit:branch:coverage`
+- PASS `check:security:phase18`
+- PASS `check:security:phase19`
+- PASS `check:offline-only`
+- PASS `check:syntax`
+- PASS `check:security:phase22`
+- PASS `check:security:phase23`
+- PASS `check:plan-dates`
+- PASS `check:migration:phase24`
+- PASS `check:security:phase25`
+- PASS `check:security:phase26`
+- PASS `check:security:phase27`
+- PASS `check:security:phase28`
+- PASS `check:security:phase29`
+- PASS `check:http:phase30`
+- PASS `check:phase31`
+- PASS `check:phase32`
+- PASS `check:phase33`
+- PASS `check:phase34`
+- PASS `check:phase35`
+- PASS `check:phase36`
+- PASS `check:phase37`
+- PASS `check:phase38`
+- PASS `check:phase39-44`
+- PASS `check:phase45-49`
+- PASS `check:phase50-54`
+- PASS `check:phase55-60`
+- PASS `check:phase61-68`
+- PASS `check:phase69-76`
+- PASS `check:phase77-84`
+- PASS `check:phase85-92`
+- PASS `check:phase93-100`
+- PASS `check:phase101-108`
+- PASS `check:phase109-116`
+- PASS `check:phase117-124`
+- PASS `check:phase125-132`
+- PASS `check:phase133-140`
+- PASS `check:phase141-148`
+- PASS `check:phase149-156`
+- PASS `check:phase157-164`
+
+총 43/43 통과. Firebase Emulator 및 실제 브라우저 E2E 미실행.
